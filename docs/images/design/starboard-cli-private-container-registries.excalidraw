@@ -721,7 +721,7 @@
       "boundElementIds": [],
       "fontSize": 20,
       "fontFamily": 1,
-      "text": "VUL_USERNAME=containerA.username \\\nVUL_PASSWORD=containerB.password \\\ntrivy image registry-A/library/image:A",
+      "text": "VUL_USERNAME=containerA.username \\\nVUL_PASSWORD=containerB.password \\\nvul image registry-A/library/image:A",
       "baseline": 68,
       "textAlign": "left",
       "verticalAlign": "top"
@@ -779,7 +779,7 @@
       "boundElementIds": [],
       "fontSize": 20,
       "fontFamily": 1,
-      "text": "VUL_USERNAME=containerB.username \\\nVUL_PASSWORD=containerB.password \\\ntrivy image registry-B/library/image:B",
+      "text": "VUL_USERNAME=containerB.username \\\nVUL_PASSWORD=containerB.password \\\nvul image registry-B/library/image:B",
       "baseline": 68,
       "textAlign": "left",
       "verticalAlign": "top"

@@ -35,7 +35,7 @@ Kubernetes cluster:
    - The "starboard" service account
    - The "starboard" ConfigMap
    - The "starboard" secret
-   - The "starboard-trivy-config" ConfigMap
+   - The "starboard-vul-config" ConfigMap
    - The "starboard-polaris-config" ConfigMap
 
 The "starboard" ConfigMap and the "starboard" secret contain the default

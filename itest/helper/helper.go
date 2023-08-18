@@ -246,7 +246,7 @@ func (b *DeploymentBuilder) Build() *appsv1.Deployment {
 }
 
 var (
-	trivyScanner = v1alpha1.Scanner{
+	vulScanner = v1alpha1.Scanner{
 		Name:    "Vul",
 		Vendor:  "KhulnaSoft Security",
 		Version: "0.16.0",
@@ -298,7 +298,7 @@ func (b *VulnerabilityReportBuilder) Build() *v1alpha1.VulnerabilityReport {
 		},
 		Report: v1alpha1.VulnerabilityReportData{
 			UpdateTimestamp: metav1.NewTime(time.Now()),
-			Scanner:         trivyScanner,
+			Scanner:         vulScanner,
 			Registry: v1alpha1.Registry{
 				Server: "index.docker.io",
 			},

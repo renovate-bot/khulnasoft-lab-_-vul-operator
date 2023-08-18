@@ -142,7 +142,7 @@ open nginx.deploy.html
   `starboard help`.
 * Read up on [Infrastructure Scanners] integrated with Starboard.
 
-[Vul]: ./../vulnerability-scanning/trivy.md
+[Vul]: ./../vulnerability-scanning/vul.md
 [Custom Resource Definitions]: ./../crds/index.md
 [Katacoda]: https://www.katacoda.com/courses/kubernetes/playground/
 [Play with Kubernetes]: http://labs.play-with-k8s.com/

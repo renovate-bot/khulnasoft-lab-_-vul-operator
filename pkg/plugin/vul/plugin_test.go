@@ -1,4 +1,4 @@
-package trivy_test
+package vul_test
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/khulnasoft-lab/starboard/pkg/plugin/trivy"
+	"github.com/khulnasoft-lab/starboard/pkg/plugin/vul"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,28 +30,28 @@ var (
 	fixedClock = ext.NewFixedClock(fixedTime)
 )
 
-const defaultDBRepository = "ghcr.io/khulnasoft-lab/trivy-db"
+const defaultDBRepository = "ghcr.io/khulnasoft-lab/vul-db"
 
 func TestConfig_GetImageRef(t *testing.T) {
 	testCases := []struct {
 		name             string
-		configData       trivy.Config
+		configData       vul.Config
 		expectedError    string
 		expectedImageRef string
 	}{
 		{
 			name:          "Should return error",
-			configData:    trivy.Config{PluginConfig: starboard.PluginConfig{}},
-			expectedError: "property trivy.imageRef not set",
+			configData:    vul.Config{PluginConfig: starboard.PluginConfig{}},
+			expectedError: "property vul.imageRef not set",
 		},
 		{
 			name: "Should return image reference from config data",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.imageRef": "gcr.io/khulnasoft-lab/trivy:0.8.0",
+					"vul.imageRef": "gcr.io/khulnasoft-lab/vul:0.8.0",
 				},
 			}},
-			expectedImageRef: "gcr.io/khulnasoft-lab/trivy:0.8.0",
+			expectedImageRef: "gcr.io/khulnasoft-lab/vul:0.8.0",
 		},
 	}
 
@@ -71,41 +71,41 @@ func TestConfig_GetImageRef(t *testing.T) {
 func TestConfig_GetMode(t *testing.T) {
 	testCases := []struct {
 		name          string
-		configData    trivy.Config
+		configData    vul.Config
 		expectedError string
-		expectedMode  trivy.Mode
+		expectedMode  vul.Mode
 	}{
 		{
 			name: "Should return Standalone",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.mode": "Standalone",
+					"vul.mode": "Standalone",
 				},
 			}},
-			expectedMode: trivy.Standalone,
+			expectedMode: vul.Standalone,
 		},
 		{
 			name: "Should return ClientServer",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.mode": "ClientServer",
+					"vul.mode": "ClientServer",
 				},
 			}},
-			expectedMode: trivy.ClientServer,
+			expectedMode: vul.ClientServer,
 		},
 		{
 			name:          "Should return error when value is not set",
-			configData:    trivy.Config{PluginConfig: starboard.PluginConfig{}},
-			expectedError: "property trivy.mode not set",
+			configData:    vul.Config{PluginConfig: starboard.PluginConfig{}},
+			expectedError: "property vul.mode not set",
 		},
 		{
 			name: "Should return error when value is not allowed",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.mode": "P2P",
+					"vul.mode": "P2P",
 				},
 			}},
-			expectedError: "invalid value (P2P) of trivy.mode; allowed values (Standalone, ClientServer)",
+			expectedError: "invalid value (P2P) of vul.mode; allowed values (Standalone, ClientServer)",
 		},
 	}
 	for _, tc := range testCases {
@@ -124,43 +124,43 @@ func TestConfig_GetMode(t *testing.T) {
 func TestConfig_GetCommand(t *testing.T) {
 	testCases := []struct {
 		name            string
-		configData      trivy.Config
+		configData      vul.Config
 		expectedError   string
-		expectedCommand trivy.Command
+		expectedCommand vul.Command
 	}{
 		{
 			name: "Should return image",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.command": "image",
+					"vul.command": "image",
 				},
 			}},
-			expectedCommand: trivy.Image,
+			expectedCommand: vul.Image,
 		},
 		{
 			name: "Should return image when value is not set",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{},
 			}},
-			expectedCommand: trivy.Image,
+			expectedCommand: vul.Image,
 		},
 		{
 			name: "Should return filesystem",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.command": "filesystem",
+					"vul.command": "filesystem",
 				},
 			}},
-			expectedCommand: trivy.Filesystem,
+			expectedCommand: vul.Filesystem,
 		},
 		{
 			name: "Should return error when value is not allowed",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.command": "ls",
+					"vul.command": "ls",
 				},
 			}},
-			expectedError: "invalid value (ls) of trivy.command; allowed values (image, filesystem)",
+			expectedError: "invalid value (ls) of vul.command; allowed values (image, filesystem)",
 		},
 	}
 	for _, tc := range testCases {
@@ -179,13 +179,13 @@ func TestConfig_GetCommand(t *testing.T) {
 func TestConfig_GetResourceRequirements(t *testing.T) {
 	testCases := []struct {
 		name                 string
-		config               trivy.Config
+		config               vul.Config
 		expectedError        string
 		expectedRequirements corev1.ResourceRequirements
 	}{
 		{
 			name: "Should return empty requirements by default",
-			config: trivy.Config{
+			config: vul.Config{
 				PluginConfig: starboard.PluginConfig{},
 			},
 			expectedError: "",
@@ -196,14 +196,14 @@ func TestConfig_GetResourceRequirements(t *testing.T) {
 		},
 		{
 			name: "Should return configured resource requirement",
-			config: trivy.Config{
+			config: vul.Config{
 				PluginConfig: starboard.PluginConfig{
 					Data: map[string]string{
-						"trivy.dbRepository":              defaultDBRepository,
-						"trivy.resources.requests.cpu":    "800m",
-						"trivy.resources.requests.memory": "200M",
-						"trivy.resources.limits.cpu":      "600m",
-						"trivy.resources.limits.memory":   "700M",
+						"vul.dbRepository":              defaultDBRepository,
+						"vul.resources.requests.cpu":    "800m",
+						"vul.resources.requests.memory": "200M",
+						"vul.resources.limits.cpu":      "600m",
+						"vul.resources.limits.memory":   "700M",
 					},
 				},
 			},
@@ -221,14 +221,14 @@ func TestConfig_GetResourceRequirements(t *testing.T) {
 		},
 		{
 			name: "Should return error if resource is not parseable",
-			config: trivy.Config{
+			config: vul.Config{
 				PluginConfig: starboard.PluginConfig{
 					Data: map[string]string{
-						"trivy.resources.requests.cpu": "roughly 100",
+						"vul.resources.requests.cpu": "roughly 100",
 					},
 				},
 			},
-			expectedError: "parsing resource definition trivy.resources.requests.cpu: roughly 100 quantities must match the regular expression '^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$'",
+			expectedError: "parsing resource definition vul.resources.requests.cpu: roughly 100 quantities must match the regular expression '^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$'",
 		},
 	}
 	for _, tc := range testCases {
@@ -247,12 +247,12 @@ func TestConfig_GetResourceRequirements(t *testing.T) {
 func TestConfig_IgnoreFileExists(t *testing.T) {
 	testCases := []struct {
 		name           string
-		configData     trivy.Config
+		configData     vul.Config
 		expectedOutput bool
 	}{
 		{
 			name: "Should return false",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo": "bar",
 				},
@@ -261,10 +261,10 @@ func TestConfig_IgnoreFileExists(t *testing.T) {
 		},
 		{
 			name: "Should return true",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo": "bar",
-					"trivy.ignoreFile": `# Accept the risk
+					"vul.ignoreFile": `# Accept the risk
 CVE-2018-14618
 
 # No impact in our settings
@@ -286,12 +286,12 @@ CVE-2019-1543`,
 func TestConfig_IgnoreUnfixed(t *testing.T) {
 	testCases := []struct {
 		name           string
-		configData     trivy.Config
+		configData     vul.Config
 		expectedOutput bool
 	}{
 		{
 			name: "Should return false",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo": "bar",
 				},
@@ -300,20 +300,20 @@ func TestConfig_IgnoreUnfixed(t *testing.T) {
 		},
 		{
 			name: "Should return true",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo":                 "bar",
-					"trivy.ignoreUnfixed": "true",
+					"vul.ignoreUnfixed": "true",
 				},
 			}},
 			expectedOutput: true,
 		},
 		{
 			name: "Should return false when set it as false",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo":                 "bar",
-					"trivy.ignoreUnfixed": "false",
+					"vul.ignoreUnfixed": "false",
 				},
 			}},
 			expectedOutput: true,
@@ -330,12 +330,12 @@ func TestConfig_IgnoreUnfixed(t *testing.T) {
 func TestConfig_GetInsecureRegistries(t *testing.T) {
 	testCases := []struct {
 		name           string
-		configData     trivy.Config
+		configData     vul.Config
 		expectedOutput map[string]bool
 	}{
 		{
-			name: "Should return nil map when there is no key with trivy.insecureRegistry. prefix",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			name: "Should return nil map when there is no key with vul.insecureRegistry. prefix",
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo": "bar",
 				},
@@ -344,11 +344,11 @@ func TestConfig_GetInsecureRegistries(t *testing.T) {
 		},
 		{
 			name: "Should return insecure registries in map",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo":                                "bar",
-					"trivy.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
-					"trivy.insecureRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
+					"vul.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+					"vul.insecureRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
 				},
 			}},
 			expectedOutput: map[string]bool{
@@ -369,12 +369,12 @@ func TestConfig_GetInsecureRegistries(t *testing.T) {
 func TestConfig_GetNonSSLRegistries(t *testing.T) {
 	testCases := []struct {
 		name           string
-		configData     trivy.Config
+		configData     vul.Config
 		expectedOutput map[string]bool
 	}{
 		{
-			name: "Should return nil map when there is no key with trivy.nonSslRegistry. prefix",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			name: "Should return nil map when there is no key with vul.nonSslRegistry. prefix",
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo": "bar",
 				},
@@ -383,11 +383,11 @@ func TestConfig_GetNonSSLRegistries(t *testing.T) {
 		},
 		{
 			name: "Should return insecure registries in map",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo":                              "bar",
-					"trivy.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
-					"trivy.nonSslRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
+					"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+					"vul.nonSslRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
 				},
 			}},
 			expectedOutput: map[string]bool{
@@ -408,12 +408,12 @@ func TestConfig_GetNonSSLRegistries(t *testing.T) {
 func TestConfig_GetMirrors(t *testing.T) {
 	testCases := []struct {
 		name           string
-		configData     trivy.Config
+		configData     vul.Config
 		expectedOutput map[string]string
 	}{
 		{
-			name: "Should return empty map when there is no key with trivy.mirrors.registry. prefix",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			name: "Should return empty map when there is no key with vul.mirrors.registry. prefix",
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
 					"foo": "bar",
 				},
@@ -422,9 +422,9 @@ func TestConfig_GetMirrors(t *testing.T) {
 		},
 		{
 			name: "Should return mirrors in a map",
-			configData: trivy.Config{PluginConfig: starboard.PluginConfig{
+			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"trivy.registry.mirror.docker.io": "mirror.io",
+					"vul.registry.mirror.docker.io": "mirror.io",
 				},
 			}},
 			expectedOutput: map[string]string{"docker.io": "mirror.io"},
@@ -443,10 +443,10 @@ func TestPlugin_Init(t *testing.T) {
 	t.Run("Should create the default config", func(t *testing.T) {
 		testClient := fake.NewClientBuilder().WithObjects().Build()
 		objectResolver := kube.NewObjectResolver(testClient, &kube.CompatibleObjectMapper{})
-		instance := trivy.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
+		instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
 
 		pluginContext := starboard.NewPluginContext().
-			WithName(trivy.Plugin).
+			WithName(vul.Plugin).
 			WithNamespace("starboard-ns").
 			WithServiceAccountName("starboard-sa").
 			WithClient(testClient).
@@ -457,7 +457,7 @@ func TestPlugin_Init(t *testing.T) {
 		var cm corev1.ConfigMap
 		err = testClient.Get(context.Background(), types.NamespacedName{
 			Namespace: "starboard-ns",
-			Name:      "starboard-trivy-config",
+			Name:      "starboard-vul-config",
 		}, &cm)
 		require.NoError(t, err)
 		assert.Equal(t, corev1.ConfigMap{
@@ -466,7 +466,7 @@ func TestPlugin_Init(t *testing.T) {
 				Kind:       "ConfigMap",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "starboard-trivy-config",
+				Name:      "starboard-vul-config",
 				Namespace: "starboard-ns",
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "starboard",
@@ -474,16 +474,16 @@ func TestPlugin_Init(t *testing.T) {
 				ResourceVersion: "1",
 			},
 			Data: map[string]string{
-				"trivy.imageRef":     "docker.io/khulnasoft/trivy:0.25.2",
-				"trivy.severity":     "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
-				"trivy.mode":         "Standalone",
-				"trivy.timeout":      "5m0s",
-				"trivy.dbRepository": defaultDBRepository,
+				"vul.imageRef":     "docker.io/khulnasoft/vul:0.25.2",
+				"vul.severity":     "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+				"vul.mode":         "Standalone",
+				"vul.timeout":      "5m0s",
+				"vul.dbRepository": defaultDBRepository,
 
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 		}, cm)
 	})
@@ -496,21 +496,21 @@ func TestPlugin_Init(t *testing.T) {
 					Kind:       "ConfigMap",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name:            "starboard-trivy-config",
+					Name:            "starboard-vul-config",
 					Namespace:       "starboard-ns",
 					ResourceVersion: "1",
 				},
 				Data: map[string]string{
-					"trivy.imageRef": "docker.io/khulnasoft/trivy:0.25.2",
-					"trivy.severity": "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
-					"trivy.mode":     "Standalone",
+					"vul.imageRef": "docker.io/khulnasoft/vul:0.25.2",
+					"vul.severity": "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+					"vul.mode":     "Standalone",
 				},
 			}).Build()
 		objectResolver := kube.NewObjectResolver(testClient, &kube.CompatibleObjectMapper{})
-		instance := trivy.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
+		instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
 
 		pluginContext := starboard.NewPluginContext().
-			WithName(trivy.Plugin).
+			WithName(vul.Plugin).
 			WithNamespace("starboard-ns").
 			WithServiceAccountName("starboard-sa").
 			WithClient(testClient).
@@ -521,7 +521,7 @@ func TestPlugin_Init(t *testing.T) {
 		var cm corev1.ConfigMap
 		err = testClient.Get(context.Background(), types.NamespacedName{
 			Namespace: "starboard-ns",
-			Name:      "starboard-trivy-config",
+			Name:      "starboard-vul-config",
 		}, &cm)
 		require.NoError(t, err)
 		assert.Equal(t, corev1.ConfigMap{
@@ -530,14 +530,14 @@ func TestPlugin_Init(t *testing.T) {
 				Kind:       "ConfigMap",
 			},
 			ObjectMeta: metav1.ObjectMeta{
-				Name:            "starboard-trivy-config",
+				Name:            "starboard-vul-config",
 				Namespace:       "starboard-ns",
 				ResourceVersion: "1",
 			},
 			Data: map[string]string{
-				"trivy.imageRef": "docker.io/khulnasoft/trivy:0.25.2",
-				"trivy.severity": "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
-				"trivy.mode":     "Standalone",
+				"vul.imageRef": "docker.io/khulnasoft/vul:0.25.2",
+				"vul.severity": "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
+				"vul.mode":     "Standalone",
 			},
 		}, cm)
 	})
@@ -565,9 +565,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 		ValueFrom: &corev1.EnvVarSource{
 			ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 				LocalObjectReference: corev1.LocalObjectReference{
-					Name: "starboard-trivy-config",
+					Name: "starboard-vul-config",
 				},
-				Key:      "trivy.timeout",
+				Key:      "vul.timeout",
 				Optional: pointer.BoolPtr(true),
 			},
 		},
@@ -585,13 +585,13 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 		{
 			name: "Standalone mode without insecure registry",
 			config: map[string]string{
-				"trivy.imageRef":                  "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                      string(trivy.Standalone),
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.imageRef":                  "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &appsv1.ReplicaSet{
 				TypeMeta: metav1.TypeMeta{
@@ -626,7 +626,7 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 				InitContainers: []corev1.Container{
 					{
 						Name:                     "00000000-0000-0000-0000-000000000001",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -635,9 +635,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -647,9 +647,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -659,9 +659,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -672,19 +672,19 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.githubToken",
+										Key:      "vul.githubToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"image",
 							"--download-db-only",
 							"--db-repository", defaultDBRepository,
@@ -707,7 +707,7 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -716,9 +716,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -728,9 +728,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -741,9 +741,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -753,9 +753,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -765,9 +765,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -777,9 +777,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -789,19 +789,19 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"--quiet",
 							"image",
 							"--skip-update",
@@ -837,15 +837,15 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 		{
 			name: "Standalone mode with insecure registry",
 			config: map[string]string{
-				"trivy.imageRef":                     "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                         string(trivy.Standalone),
-				"trivy.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
-				"trivy.dbRepository":                 defaultDBRepository,
+				"vul.imageRef":                     "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                         string(vul.Standalone),
+				"vul.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+				"vul.dbRepository":                 defaultDBRepository,
 
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -875,7 +875,7 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 				InitContainers: []corev1.Container{
 					{
 						Name:                     "00000000-0000-0000-0000-000000000001",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -884,9 +884,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -896,9 +896,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -908,9 +908,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -920,19 +920,19 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.githubToken",
+										Key:      "vul.githubToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"image",
 							"--download-db-only",
 							"--db-repository", defaultDBRepository,
@@ -955,7 +955,7 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -964,9 +964,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -976,9 +976,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -989,9 +989,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1001,9 +1001,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1013,9 +1013,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1025,9 +1025,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1037,9 +1037,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1050,10 +1050,10 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"--quiet",
 							"image",
 							"--skip-update",
@@ -1089,14 +1089,14 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 		{
 			name: "Standalone mode with non-SSL registry",
 			config: map[string]string{
-				"trivy.imageRef":                   "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                       string(trivy.Standalone),
-				"trivy.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
-				"trivy.dbRepository":               defaultDBRepository,
-				"trivy.resources.requests.cpu":     "100m",
-				"trivy.resources.requests.memory":  "100M",
-				"trivy.resources.limits.cpu":       "500m",
-				"trivy.resources.limits.memory":    "500M",
+				"vul.imageRef":                   "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                       string(vul.Standalone),
+				"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+				"vul.dbRepository":               defaultDBRepository,
+				"vul.resources.requests.cpu":     "100m",
+				"vul.resources.requests.memory":  "100M",
+				"vul.resources.limits.cpu":       "500m",
+				"vul.resources.limits.memory":    "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -1127,7 +1127,7 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 				InitContainers: []corev1.Container{
 					{
 						Name:                     "00000000-0000-0000-0000-000000000001",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1136,9 +1136,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1148,9 +1148,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1160,9 +1160,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1172,19 +1172,19 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.githubToken",
+										Key:      "vul.githubToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"image",
 							"--download-db-only",
 							"--db-repository", defaultDBRepository,
@@ -1207,7 +1207,7 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1216,9 +1216,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1228,9 +1228,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1241,9 +1241,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1253,9 +1253,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1265,9 +1265,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1277,9 +1277,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1289,9 +1289,9 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1302,10 +1302,10 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"--quiet",
 							"image",
 							"--skip-update",
@@ -1339,20 +1339,20 @@ func TestPlugin_GetScanJobSpec(t *testing.T) {
 			},
 		},
 		{
-			name: "Standalone mode with trivyignore file",
+			name: "Standalone mode with vulignore file",
 			config: map[string]string{
-				"trivy.imageRef": "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":     string(trivy.Standalone),
-				"trivy.ignoreFile": `# Accept the risk
+				"vul.imageRef": "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":     string(vul.Standalone),
+				"vul.ignoreFile": `# Accept the risk
 CVE-2018-14618
 
 # No impact in our settings
 CVE-2019-1543`,
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -1384,12 +1384,12 @@ CVE-2019-1543`,
 						VolumeSource: corev1.VolumeSource{
 							ConfigMap: &corev1.ConfigMapVolumeSource{
 								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "starboard-trivy-config",
+									Name: "starboard-vul-config",
 								},
 								Items: []corev1.KeyToPath{
 									{
-										Key:  "trivy.ignoreFile",
-										Path: ".trivyignore",
+										Key:  "vul.ignoreFile",
+										Path: ".vulignore",
 									},
 								},
 							},
@@ -1399,7 +1399,7 @@ CVE-2019-1543`,
 				InitContainers: []corev1.Container{
 					{
 						Name:                     "00000000-0000-0000-0000-000000000001",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1408,9 +1408,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1420,9 +1420,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1432,9 +1432,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1444,19 +1444,19 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.githubToken",
+										Key:      "vul.githubToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"image",
 							"--download-db-only",
 							"--db-repository", defaultDBRepository,
@@ -1479,7 +1479,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1488,9 +1488,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1500,9 +1500,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1513,9 +1513,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1525,9 +1525,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1537,9 +1537,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1549,9 +1549,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1561,23 +1561,23 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 							{
 								Name:  "VUL_IGNOREFILE",
-								Value: "/etc/trivy/.trivyignore",
+								Value: "/etc/vul/.vulignore",
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"--quiet",
 							"image",
 							"--skip-update",
@@ -1598,8 +1598,8 @@ CVE-2019-1543`,
 							tmpVolumeMount,
 							{
 								Name:      "ignorefile",
-								MountPath: "/etc/trivy/.trivyignore",
-								SubPath:   ".trivyignore",
+								MountPath: "/etc/vul/.vulignore",
+								SubPath:   ".vulignore",
 							},
 						},
 						SecurityContext: &corev1.SecurityContext{
@@ -1618,16 +1618,16 @@ CVE-2019-1543`,
 		{
 			name: "Standalone mode with mirror",
 			config: map[string]string{
-				"trivy.imageRef": "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":     string(trivy.Standalone),
+				"vul.imageRef": "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":     string(vul.Standalone),
 
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 
-				"trivy.registry.mirror.index.docker.io": "mirror.io",
+				"vul.registry.mirror.index.docker.io": "mirror.io",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -1658,7 +1658,7 @@ CVE-2019-1543`,
 				InitContainers: []corev1.Container{
 					{
 						Name:                     "00000000-0000-0000-0000-000000000001",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1667,9 +1667,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1679,9 +1679,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1691,9 +1691,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1704,19 +1704,19 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.githubToken",
+										Key:      "vul.githubToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"image",
 							"--download-db-only",
 							"--db-repository", defaultDBRepository,
@@ -1739,7 +1739,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1748,9 +1748,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1760,9 +1760,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1773,9 +1773,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1785,9 +1785,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1797,9 +1797,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1809,9 +1809,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1821,19 +1821,19 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
-							"--cache-dir", "/tmp/trivy/.cache",
+							"--cache-dir", "/tmp/vul/.cache",
 							"--quiet",
 							"image",
 							"--skip-update",
@@ -1869,14 +1869,14 @@ CVE-2019-1543`,
 		{
 			name: "ClientServer mode without insecure registry",
 			config: map[string]string{
-				"trivy.imageRef":                  "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                      string(trivy.ClientServer),
-				"trivy.serverURL":                 "http://trivy.trivy:4954",
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.imageRef":                  "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -1904,7 +1904,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -1913,9 +1913,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1925,9 +1925,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1937,9 +1937,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1949,9 +1949,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1961,9 +1961,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1974,9 +1974,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1986,9 +1986,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -1998,9 +1998,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverTokenHeader",
+										Key:      "vul.serverTokenHeader",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2010,9 +2010,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverToken",
+										Key:      "vul.serverToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2022,16 +2022,16 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverCustomHeaders",
+										Key:      "vul.serverCustomHeaders",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
 							"--quiet",
@@ -2039,7 +2039,7 @@ CVE-2019-1543`,
 							"--format",
 							"json",
 							"--remote",
-							"http://trivy.trivy:4954",
+							"http://vul.vul:4954",
 							"nginx:1.16",
 						},
 						Resources: corev1.ResourceRequirements{
@@ -2059,14 +2059,14 @@ CVE-2019-1543`,
 		{
 			name: "ClientServer mode without insecure registry",
 			config: map[string]string{
-				"trivy.imageRef":                  "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                      string(trivy.ClientServer),
-				"trivy.serverURL":                 "http://trivy.trivy:4954",
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.imageRef":                  "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -2094,7 +2094,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -2103,9 +2103,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2115,9 +2115,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2127,9 +2127,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2139,9 +2139,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2151,9 +2151,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2164,9 +2164,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2176,9 +2176,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2188,9 +2188,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverTokenHeader",
+										Key:      "vul.serverTokenHeader",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2200,9 +2200,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverToken",
+										Key:      "vul.serverToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2212,16 +2212,16 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverCustomHeaders",
+										Key:      "vul.serverCustomHeaders",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
 							"--quiet",
@@ -2229,7 +2229,7 @@ CVE-2019-1543`,
 							"--format",
 							"json",
 							"--remote",
-							"http://trivy.trivy:4954",
+							"http://vul.vul:4954",
 							"nginx:1.16",
 						},
 						Resources: corev1.ResourceRequirements{
@@ -2249,15 +2249,15 @@ CVE-2019-1543`,
 		{
 			name: "ClientServer mode with insecure server",
 			config: map[string]string{
-				"trivy.imageRef":                  "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                      string(trivy.ClientServer),
-				"trivy.serverURL":                 "https://trivy.trivy:4954",
-				"trivy.serverInsecure":            "true",
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.imageRef":                  "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "https://vul.vul:4954",
+				"vul.serverInsecure":            "true",
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -2285,7 +2285,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -2294,9 +2294,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2306,9 +2306,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2318,9 +2318,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2330,9 +2330,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2342,9 +2342,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2355,9 +2355,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2367,9 +2367,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2379,9 +2379,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverTokenHeader",
+										Key:      "vul.serverTokenHeader",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2391,9 +2391,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverToken",
+										Key:      "vul.serverToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2403,9 +2403,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverCustomHeaders",
+										Key:      "vul.serverCustomHeaders",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2416,7 +2416,7 @@ CVE-2019-1543`,
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
 							"--quiet",
@@ -2424,7 +2424,7 @@ CVE-2019-1543`,
 							"--format",
 							"json",
 							"--remote",
-							"https://trivy.trivy:4954",
+							"https://vul.vul:4954",
 							"poc.myregistry.harbor.com.pl/nginx:1.16",
 						},
 						Resources: corev1.ResourceRequirements{
@@ -2444,15 +2444,15 @@ CVE-2019-1543`,
 		{
 			name: "ClientServer mode with non-SSL registry",
 			config: map[string]string{
-				"trivy.imageRef":                   "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":                       string(trivy.ClientServer),
-				"trivy.serverURL":                  "http://trivy.trivy:4954",
-				"trivy.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
-				"trivy.dbRepository":               defaultDBRepository,
-				"trivy.resources.requests.cpu":     "100m",
-				"trivy.resources.requests.memory":  "100M",
-				"trivy.resources.limits.cpu":       "500m",
-				"trivy.resources.limits.memory":    "500M",
+				"vul.imageRef":                   "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":                       string(vul.ClientServer),
+				"vul.serverURL":                  "http://vul.vul:4954",
+				"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+				"vul.dbRepository":               defaultDBRepository,
+				"vul.resources.requests.cpu":     "100m",
+				"vul.resources.requests.memory":  "100M",
+				"vul.resources.limits.cpu":       "500m",
+				"vul.resources.limits.memory":    "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -2480,7 +2480,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -2489,9 +2489,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2501,9 +2501,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2513,9 +2513,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2525,9 +2525,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2537,9 +2537,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2550,9 +2550,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2562,9 +2562,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2574,9 +2574,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverTokenHeader",
+										Key:      "vul.serverTokenHeader",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2586,9 +2586,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverToken",
+										Key:      "vul.serverToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2598,9 +2598,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverCustomHeaders",
+										Key:      "vul.serverCustomHeaders",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2611,7 +2611,7 @@ CVE-2019-1543`,
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
 							"--quiet",
@@ -2619,7 +2619,7 @@ CVE-2019-1543`,
 							"--format",
 							"json",
 							"--remote",
-							"http://trivy.trivy:4954",
+							"http://vul.vul:4954",
 							"poc.myregistry.harbor.com.pl/nginx:1.16",
 						},
 						Resources: corev1.ResourceRequirements{
@@ -2637,21 +2637,21 @@ CVE-2019-1543`,
 			},
 		},
 		{
-			name: "ClientServer mode with trivyignore file",
+			name: "ClientServer mode with vulignore file",
 			config: map[string]string{
-				"trivy.imageRef":  "docker.io/khulnasoft/trivy:0.14.0",
-				"trivy.mode":      string(trivy.ClientServer),
-				"trivy.serverURL": "http://trivy.trivy:4954",
-				"trivy.ignoreFile": `# Accept the risk
+				"vul.imageRef":  "docker.io/khulnasoft/vul:0.14.0",
+				"vul.mode":      string(vul.ClientServer),
+				"vul.serverURL": "http://vul.vul:4954",
+				"vul.ignoreFile": `# Accept the risk
 CVE-2018-14618
 
 # No impact in our settings
 CVE-2019-1543`,
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -2682,12 +2682,12 @@ CVE-2019-1543`,
 						VolumeSource: corev1.VolumeSource{
 							ConfigMap: &corev1.ConfigMapVolumeSource{
 								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "starboard-trivy-config",
+									Name: "starboard-vul-config",
 								},
 								Items: []corev1.KeyToPath{
 									{
-										Key:  "trivy.ignoreFile",
-										Path: ".trivyignore",
+										Key:  "vul.ignoreFile",
+										Path: ".vulignore",
 									},
 								},
 							},
@@ -2697,7 +2697,7 @@ CVE-2019-1543`,
 				Containers: []corev1.Container{
 					{
 						Name:                     "nginx",
-						Image:                    "docker.io/khulnasoft/trivy:0.14.0",
+						Image:                    "docker.io/khulnasoft/vul:0.14.0",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -2706,9 +2706,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2718,9 +2718,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2730,9 +2730,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2742,9 +2742,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2754,9 +2754,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.ignoreUnfixed",
+										Key:      "vul.ignoreUnfixed",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2767,9 +2767,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2779,9 +2779,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2791,9 +2791,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverTokenHeader",
+										Key:      "vul.serverTokenHeader",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2803,9 +2803,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverToken",
+										Key:      "vul.serverToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2815,20 +2815,20 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.serverCustomHeaders",
+										Key:      "vul.serverCustomHeaders",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 							{
 								Name:  "VUL_IGNOREFILE",
-								Value: "/etc/trivy/.trivyignore",
+								Value: "/etc/vul/.vulignore",
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
 							"--quiet",
@@ -2836,7 +2836,7 @@ CVE-2019-1543`,
 							"--format",
 							"json",
 							"--remote",
-							"http://trivy.trivy:4954",
+							"http://vul.vul:4954",
 							"nginx:1.16",
 						},
 						Resources: corev1.ResourceRequirements{
@@ -2852,8 +2852,8 @@ CVE-2019-1543`,
 						VolumeMounts: []corev1.VolumeMount{
 							{
 								Name:      "ignorefile",
-								MountPath: "/etc/trivy/.trivyignore",
-								SubPath:   ".trivyignore",
+								MountPath: "/etc/vul/.vulignore",
+								SubPath:   ".vulignore",
 							},
 						},
 					},
@@ -2863,14 +2863,14 @@ CVE-2019-1543`,
 		{
 			name: "Vul fs scan command in Standalone mode",
 			config: map[string]string{
-				"trivy.imageRef":                  "docker.io/khulnasoft/trivy:0.25.2",
-				"trivy.mode":                      string(trivy.Standalone),
-				"trivy.command":                   string(trivy.Filesystem),
-				"trivy.dbRepository":              defaultDBRepository,
-				"trivy.resources.requests.cpu":    "100m",
-				"trivy.resources.requests.memory": "100M",
-				"trivy.resources.limits.cpu":      "500m",
-				"trivy.resources.limits.memory":   "500M",
+				"vul.imageRef":                  "docker.io/khulnasoft/vul:0.25.2",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.command":                   string(vul.Filesystem),
+				"vul.dbRepository":              defaultDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
 			},
 			workloadSpec: &corev1.Pod{
 				TypeMeta: metav1.TypeMeta{
@@ -2897,7 +2897,7 @@ CVE-2019-1543`,
 				AutomountServiceAccountToken: pointer.BoolPtr(false),
 				Volumes: []corev1.Volume{
 					{
-						Name: trivy.FsSharedVolumeName,
+						Name: vul.FsSharedVolumeName,
 						VolumeSource: corev1.VolumeSource{
 							EmptyDir: &corev1.EmptyDirVolumeSource{
 								Medium: corev1.StorageMediumDefault,
@@ -2908,14 +2908,14 @@ CVE-2019-1543`,
 				InitContainers: []corev1.Container{
 					{
 						Name:                     "00000000-0000-0000-0000-000000000001",
-						Image:                    "docker.io/khulnasoft/trivy:0.25.2",
+						Image:                    "docker.io/khulnasoft/vul:0.25.2",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Command: []string{
 							"cp",
 							"-v",
-							"/usr/local/bin/trivy",
-							trivy.SharedVolumeLocationOfVul,
+							"/usr/local/bin/vul",
+							vul.SharedVolumeLocationOfVul,
 						},
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
@@ -2929,7 +2929,7 @@ CVE-2019-1543`,
 						},
 						VolumeMounts: []corev1.VolumeMount{
 							{
-								Name:      trivy.FsSharedVolumeName,
+								Name:      vul.FsSharedVolumeName,
 								ReadOnly:  false,
 								MountPath: "/var/starboard",
 							},
@@ -2937,7 +2937,7 @@ CVE-2019-1543`,
 					},
 					{
 						Name:                     "00000000-0000-0000-0000-000000000002",
-						Image:                    "docker.io/khulnasoft/trivy:0.25.2",
+						Image:                    "docker.io/khulnasoft/vul:0.25.2",
 						ImagePullPolicy:          corev1.PullIfNotPresent,
 						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 						Env: []corev1.EnvVar{
@@ -2946,9 +2946,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2958,9 +2958,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2970,9 +2970,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -2983,21 +2983,21 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									SecretKeyRef: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.githubToken",
+										Key:      "vul.githubToken",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							"trivy",
+							"vul",
 						},
 						Args: []string{
 							"--download-db-only",
 							"--cache-dir",
-							"/var/starboard/trivy-db",
+							"/var/starboard/vul-db",
 							"--db-repository", defaultDBRepository,
 						},
 						Resources: corev1.ResourceRequirements{
@@ -3012,7 +3012,7 @@ CVE-2019-1543`,
 						},
 						VolumeMounts: []corev1.VolumeMount{
 							{
-								Name:      trivy.FsSharedVolumeName,
+								Name:      vul.FsSharedVolumeName,
 								ReadOnly:  false,
 								MountPath: "/var/starboard",
 							},
@@ -3031,9 +3031,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.severity",
+										Key:      "vul.severity",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -3043,9 +3043,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipFiles",
+										Key:      "vul.skipFiles",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -3055,9 +3055,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.skipDirs",
+										Key:      "vul.skipDirs",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -3067,9 +3067,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpProxy",
+										Key:      "vul.httpProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -3079,9 +3079,9 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.httpsProxy",
+										Key:      "vul.httpsProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
@@ -3091,21 +3091,21 @@ CVE-2019-1543`,
 								ValueFrom: &corev1.EnvVarSource{
 									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "starboard-trivy-config",
+											Name: "starboard-vul-config",
 										},
-										Key:      "trivy.noProxy",
+										Key:      "vul.noProxy",
 										Optional: pointer.BoolPtr(true),
 									},
 								},
 							},
 						},
 						Command: []string{
-							trivy.SharedVolumeLocationOfVul,
+							vul.SharedVolumeLocationOfVul,
 						},
 						Args: []string{
 							"--skip-update",
 							"--cache-dir",
-							"/var/starboard/trivy-db",
+							"/var/starboard/vul-db",
 							"--quiet",
 							"fs",
 							"--format",
@@ -3124,7 +3124,7 @@ CVE-2019-1543`,
 						},
 						VolumeMounts: []corev1.VolumeMount{
 							{
-								Name:      trivy.FsSharedVolumeName,
+								Name:      vul.FsSharedVolumeName,
 								ReadOnly:  false,
 								MountPath: "/var/starboard",
 							},
@@ -3151,20 +3151,20 @@ CVE-2019-1543`,
 			fakeclient := fake.NewClientBuilder().WithObjects(
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "starboard-trivy-config",
+						Name:      "starboard-vul-config",
 						Namespace: "starboard-ns",
 					},
 					Data: tc.config,
 				},
 			).Build()
 			pluginContext := starboard.NewPluginContext().
-				WithName(trivy.Plugin).
+				WithName(vul.Plugin).
 				WithNamespace("starboard-ns").
 				WithServiceAccountName("starboard-sa").
 				WithClient(fakeclient).
 				Get()
 			objectResolver := kube.NewObjectResolver(fakeclient, &kube.CompatibleObjectMapper{})
-			instance := trivy.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
 			jobSpec, secrets, err := instance.GetScanJobSpec(pluginContext, tc.workloadSpec, nil)
 			require.NoError(t, err)
 			assert.Empty(t, secrets)
@@ -3181,14 +3181,14 @@ CVE-2019-1543`,
 	}{{
 		name: "Vul fs scan command in Standalone mode",
 		config: map[string]string{
-			"trivy.imageRef":                  "docker.io/khulnasoft/trivy:0.22.0",
-			"trivy.mode":                      string(trivy.Standalone),
-			"trivy.command":                   string(trivy.Filesystem),
-			"trivy.dbRepository":              defaultDBRepository,
-			"trivy.resources.requests.cpu":    "100m",
-			"trivy.resources.requests.memory": "100M",
-			"trivy.resources.limits.cpu":      "500m",
-			"trivy.resources.limits.memory":   "500M",
+			"vul.imageRef":                  "docker.io/khulnasoft/vul:0.22.0",
+			"vul.mode":                      string(vul.Standalone),
+			"vul.command":                   string(vul.Filesystem),
+			"vul.dbRepository":              defaultDBRepository,
+			"vul.resources.requests.cpu":    "100m",
+			"vul.resources.requests.memory": "100M",
+			"vul.resources.limits.cpu":      "500m",
+			"vul.resources.limits.memory":   "500M",
 		},
 		workloadSpec: &corev1.Pod{
 			TypeMeta: metav1.TypeMeta{
@@ -3216,7 +3216,7 @@ CVE-2019-1543`,
 			AutomountServiceAccountToken: pointer.BoolPtr(false),
 			Volumes: []corev1.Volume{
 				{
-					Name: trivy.FsSharedVolumeName,
+					Name: vul.FsSharedVolumeName,
 					VolumeSource: corev1.VolumeSource{
 						EmptyDir: &corev1.EmptyDirVolumeSource{
 							Medium: corev1.StorageMediumDefault,
@@ -3227,14 +3227,14 @@ CVE-2019-1543`,
 			InitContainers: []corev1.Container{
 				{
 					Name:                     "00000000-0000-0000-0000-000000000001",
-					Image:                    "docker.io/khulnasoft/trivy:0.22.0",
+					Image:                    "docker.io/khulnasoft/vul:0.22.0",
 					ImagePullPolicy:          corev1.PullIfNotPresent,
 					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 					Command: []string{
 						"cp",
 						"-v",
-						"/usr/local/bin/trivy",
-						trivy.SharedVolumeLocationOfVul,
+						"/usr/local/bin/vul",
+						vul.SharedVolumeLocationOfVul,
 					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
@@ -3248,7 +3248,7 @@ CVE-2019-1543`,
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      trivy.FsSharedVolumeName,
+							Name:      vul.FsSharedVolumeName,
 							ReadOnly:  false,
 							MountPath: "/var/starboard",
 						},
@@ -3256,7 +3256,7 @@ CVE-2019-1543`,
 				},
 				{
 					Name:                     "00000000-0000-0000-0000-000000000002",
-					Image:                    "docker.io/khulnasoft/trivy:0.22.0",
+					Image:                    "docker.io/khulnasoft/vul:0.22.0",
 					ImagePullPolicy:          corev1.PullIfNotPresent,
 					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 					Env: []corev1.EnvVar{
@@ -3265,9 +3265,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.httpProxy",
+									Key:      "vul.httpProxy",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3277,9 +3277,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.httpsProxy",
+									Key:      "vul.httpsProxy",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3289,9 +3289,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.noProxy",
+									Key:      "vul.noProxy",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3302,21 +3302,21 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								SecretKeyRef: &corev1.SecretKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.githubToken",
+									Key:      "vul.githubToken",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
 						},
 					},
 					Command: []string{
-						"trivy",
+						"vul",
 					},
 					Args: []string{
 						"--download-db-only",
 						"--cache-dir",
-						"/var/starboard/trivy-db",
+						"/var/starboard/vul-db",
 						"--db-repository", defaultDBRepository,
 					},
 					Resources: corev1.ResourceRequirements{
@@ -3331,7 +3331,7 @@ CVE-2019-1543`,
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      trivy.FsSharedVolumeName,
+							Name:      vul.FsSharedVolumeName,
 							ReadOnly:  false,
 							MountPath: "/var/starboard",
 						},
@@ -3350,9 +3350,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.severity",
+									Key:      "vul.severity",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3362,9 +3362,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.skipFiles",
+									Key:      "vul.skipFiles",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3374,9 +3374,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.skipDirs",
+									Key:      "vul.skipDirs",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3386,9 +3386,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.httpProxy",
+									Key:      "vul.httpProxy",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3398,9 +3398,9 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.httpsProxy",
+									Key:      "vul.httpsProxy",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
@@ -3410,21 +3410,21 @@ CVE-2019-1543`,
 							ValueFrom: &corev1.EnvVarSource{
 								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: "starboard-trivy-config",
+										Name: "starboard-vul-config",
 									},
-									Key:      "trivy.noProxy",
+									Key:      "vul.noProxy",
 									Optional: pointer.BoolPtr(true),
 								},
 							},
 						},
 					},
 					Command: []string{
-						trivy.SharedVolumeLocationOfVul,
+						vul.SharedVolumeLocationOfVul,
 					},
 					Args: []string{
 						"--skip-update",
 						"--cache-dir",
-						"/var/starboard/trivy-db",
+						"/var/starboard/vul-db",
 						"--quiet",
 						"fs",
 						"--format",
@@ -3443,7 +3443,7 @@ CVE-2019-1543`,
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      trivy.FsSharedVolumeName,
+							Name:      vul.FsSharedVolumeName,
 							ReadOnly:  false,
 							MountPath: "/var/starboard",
 						},
@@ -3468,21 +3468,21 @@ CVE-2019-1543`,
 			fakeclient := fake.NewClientBuilder().WithObjects(
 				&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "starboard-trivy-config",
+						Name:      "starboard-vul-config",
 						Namespace: "starboard-ns",
 					},
 					Data: tc.config,
 				},
 			).Build()
 			pluginContext := starboard.NewPluginContext().
-				WithName(trivy.Plugin).
+				WithName(vul.Plugin).
 				WithNamespace("starboard-ns").
 				WithServiceAccountName("starboard-sa").
 				WithClient(fakeclient).
 				WithStarboardConfig(map[string]string{starboard.KeyVulnerabilityScansInSameNamespace: "true"}).
 				Get()
 			objectResolver := kube.NewObjectResolver(fakeclient, &kube.CompatibleObjectMapper{})
-			instance := trivy.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
 			jobSpec, secrets, err := instance.GetScanJobSpec(pluginContext, tc.workloadSpec, nil)
 			require.NoError(t, err)
 			assert.Empty(t, secrets)
@@ -3575,11 +3575,11 @@ var (
 func TestPlugin_ParseVulnerabilityReportData(t *testing.T) {
 	config := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "starboard-trivy-config",
+			Name:      "starboard-vul-config",
 			Namespace: "starboard-ns",
 		},
 		Data: map[string]string{
-			"trivy.imageRef": "khulnasoft/trivy:0.9.1",
+			"vul.imageRef": "khulnasoft/vul:0.9.1",
 		},
 	}
 
@@ -3645,7 +3645,7 @@ func TestPlugin_ParseVulnerabilityReportData(t *testing.T) {
 				WithClient(fakeClient).
 				Get()
 			objectResolver := kube.NewObjectResolver(fakeClient, &kube.CompatibleObjectMapper{})
-			instance := trivy.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &objectResolver)
 			report, err := instance.ParseVulnerabilityReportData(ctx, tc.imageRef, io.NopCloser(strings.NewReader(tc.input)))
 			switch {
 			case tc.expectedError == nil:
@@ -3662,12 +3662,12 @@ func TestPlugin_ParseVulnerabilityReportData(t *testing.T) {
 func TestGetScoreFromCVSS(t *testing.T) {
 	testCases := []struct {
 		name          string
-		cvss          map[string]*trivy.CVSS
+		cvss          map[string]*vul.CVSS
 		expectedScore *float64
 	}{
 		{
 			name: "Should return vendor score when vendor v3 score exist",
-			cvss: map[string]*trivy.CVSS{
+			cvss: map[string]*vul.CVSS{
 				"nvd": {
 					V3Score: pointer.Float64Ptr(8.1),
 				},
@@ -3679,7 +3679,7 @@ func TestGetScoreFromCVSS(t *testing.T) {
 		},
 		{
 			name: "Should return nvd score when vendor v3 score is nil",
-			cvss: map[string]*trivy.CVSS{
+			cvss: map[string]*vul.CVSS{
 				"nvd": {
 					V3Score: pointer.Float64Ptr(8.1),
 				},
@@ -3691,7 +3691,7 @@ func TestGetScoreFromCVSS(t *testing.T) {
 		},
 		{
 			name: "Should return nvd score when vendor doesn't exist",
-			cvss: map[string]*trivy.CVSS{
+			cvss: map[string]*vul.CVSS{
 				"nvd": {
 					V3Score: pointer.Float64Ptr(8.1),
 				},
@@ -3700,7 +3700,7 @@ func TestGetScoreFromCVSS(t *testing.T) {
 		},
 		{
 			name: "Should return nil when vendor and nvd both v3 scores are nil",
-			cvss: map[string]*trivy.CVSS{
+			cvss: map[string]*vul.CVSS{
 				"nvd": {
 					V3Score: nil,
 				},
@@ -3712,14 +3712,14 @@ func TestGetScoreFromCVSS(t *testing.T) {
 		},
 		{
 			name:          "Should return nil when cvss doesn't exist",
-			cvss:          map[string]*trivy.CVSS{},
+			cvss:          map[string]*vul.CVSS{},
 			expectedScore: nil,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			score := trivy.GetScoreFromCVSS(tc.cvss)
+			score := vul.GetScoreFromCVSS(tc.cvss)
 			assert.Equal(t, tc.expectedScore, score)
 		})
 	}
@@ -3754,7 +3754,7 @@ func TestGetMirroredImage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			expected, err := trivy.GetMirroredImage(tc.image, tc.mirrors)
+			expected, err := vul.GetMirroredImage(tc.image, tc.mirrors)
 			if tc.expectedError != "" {
 				require.EqualError(t, err, tc.expectedError)
 			} else {

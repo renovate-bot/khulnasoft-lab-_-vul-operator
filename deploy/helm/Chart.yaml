@@ -18,7 +18,7 @@ appVersion: 0.15.13
 keywords:
   - khulnasoft-lab
   - starboard
-  - trivy
+  - vul
 # home: https://github.com/khulnasoft-lab/starboard
 sources:
   - https://github.com/khulnasoft-lab/starboard

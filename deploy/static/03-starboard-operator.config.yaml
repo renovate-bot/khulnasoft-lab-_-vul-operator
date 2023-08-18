@@ -13,7 +13,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: starboard-trivy-config
+  name: starboard-vul-config
   namespace: starboard-system
   labels:
     app.kubernetes.io/name: starboard-operator
@@ -40,7 +40,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: starboard-trivy-config
+  name: starboard-vul-config
   namespace: starboard-system
   labels:
     app.kubernetes.io/name: starboard-operator
@@ -48,15 +48,15 @@ metadata:
     app.kubernetes.io/version: "0.15.13"
     app.kubernetes.io/managed-by: kubectl
 data:
-  trivy.imageRef: "docker.io/khulnasoft/trivy:0.25.2"
-  trivy.mode: "Standalone"
-  trivy.severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
-  trivy.timeout: "5m0s"
-  trivy.dbRepository: "ghcr.io/khulnasoft-lab/trivy-db"
-  trivy.resources.requests.cpu: 100m
-  trivy.resources.requests.memory: 100M
-  trivy.resources.limits.cpu: 500m
-  trivy.resources.limits.memory: 500M
+  vul.imageRef: "docker.io/khulnasoft/vul:0.25.2"
+  vul.mode: "Standalone"
+  vul.severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+  vul.timeout: "5m0s"
+  vul.dbRepository: "ghcr.io/khulnasoft-lab/vul-db"
+  vul.resources.requests.cpu: 100m
+  vul.resources.requests.memory: 100M
+  vul.resources.limits.cpu: 500m
+  vul.resources.limits.memory: 500M
 ---
 apiVersion: v1
 kind: ConfigMap

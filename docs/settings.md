@@ -3,7 +3,7 @@
 The Starboard CLI and Starboard Operator read configuration settings from ConfigMaps, as well as Secrets that holds
 confidential settings (such as a GitHub token). Starboard plugins read configuration and secret data from ConfigMaps
 and Secrets named after the plugin. For example, Vul configuration is stored in the ConfigMap and Secret named
-`starboard-trivy-config`.
+`starboard-vul-config`.
 
 The `starboard install` command ensures the `starboard` ConfigMap and the `starboard` Secret in the `starboard`
 namespace with default settings. Similarly, the operator ensures the `starboard` ConfigMap and the `starboard` Secret in
@@ -11,38 +11,38 @@ the `OPERATOR_NAMESPACE`.
 
 You can change the default settings with `kubectl patch` or `kubectl edit` commands. For example, by default Vul
 displays vulnerabilities with all severity levels (`UNKNOWN`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`). However, you can
-display only `HIGH` and `CRITICAL` vulnerabilities by patching the `trivy.severity` value in the `starboard-trivy-config`
+display only `HIGH` and `CRITICAL` vulnerabilities by patching the `vul.severity` value in the `starboard-vul-config`
 ConfigMap:
 
 ```
 STARBOARD_NAMESPACE=<your starboard namespace>
 ```
 ```
-kubectl patch cm starboard-trivy-config -n $STARBOARD_NAMESPACE \
+kubectl patch cm starboard-vul-config -n $STARBOARD_NAMESPACE \
   --type merge \
   -p "$(cat <<EOF
 {
   "data": {
-    "trivy.severity": "HIGH,CRITICAL"
+    "vul.severity": "HIGH,CRITICAL"
   }
 }
 EOF
 )"
 ```
 
-To set the GitHub token used by Vul add the `trivy.githubToken` value to the `starboard-trivy-config` Secret:
+To set the GitHub token used by Vul add the `vul.githubToken` value to the `starboard-vul-config` Secret:
 
 ```
 STARBOARD_NAMESPACE=<your starboard namespace>
 GITHUB_TOKEN=<your token>
 ```
 ```
-kubectl patch secret starboard-trivy-config -n $STARBOARD_NAMESPACE \
+kubectl patch secret starboard-vul-config -n $STARBOARD_NAMESPACE \
   --type merge \
   -p "$(cat <<EOF
 {
   "data": {
-    "trivy.githubToken": "$(echo -n $GITHUB_TOKEN | base64)"
+    "vul.githubToken": "$(echo -n $GITHUB_TOKEN | base64)"
   }
 }
 EOF
@@ -67,16 +67,16 @@ configuration settings for common use cases. For example, switch Vul from [Stand
 
 !!! tip
     You can find it handy to delete a configuration key, which was not created by default by the `starboard install`
-    command. For example, the following `kubectl patch` command deletes the `trivy.httpProxy` key:
+    command. For example, the following `kubectl patch` command deletes the `vul.httpProxy` key:
     ```
     STARBOARD_NAMESPACE=<your starboard namespace>
     ```
     ```
-    kubectl patch cm starboard-trivy-config -n $STARBOARD_NAMESPACE \
+    kubectl patch cm starboard-vul-config -n $STARBOARD_NAMESPACE \
       --type json \
-      -p '[{"op": "remove", "path": "/data/trivy.httpProxy"}]'
+      -p '[{"op": "remove", "path": "/data/vul.httpProxy"}]'
     ```
 
-[Standalone]: ./vulnerability-scanning/trivy.md#standalone
-[ClientServer]: ./vulnerability-scanning/trivy.md#clientserver
+[Standalone]: ./vulnerability-scanning/vul.md#standalone
+[ClientServer]: ./vulnerability-scanning/vul.md#clientserver
 [tolerations]: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration

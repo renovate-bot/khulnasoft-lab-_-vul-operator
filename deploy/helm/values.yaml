@@ -97,12 +97,12 @@ starboard:
   # labeled with. Example: `foo=bar,env=stage` will labeled the scanner pods with the labels `foo: bar` and `env: stage`
   scanJobPodTemplateLabels: ""
 
-trivy:
+vul:
   # createConfig indicates whether to create config objects
   createConfig: true
 
   # imageRef the Vul image reference.
-  imageRef: docker.io/khulnasoft/trivy:0.25.2
+  imageRef: docker.io/khulnasoft/vul:0.25.2
 
   # mode is the Vul client mode. Either Standalone or ClientServer. Depending
   # on the active mode other settings might be applicable or required.
@@ -165,7 +165,7 @@ trivy:
 
   # serverURL is the endpoint URL of the Vul server. Required in ClientServer mode.
   #
-  # serverURL: "https://trivy.trivy:4975"
+  # serverURL: "https://vul.vul:4975"
 
   # serverInsecure is the flag to enable insecure connection to the Vul server.
   #
@@ -177,7 +177,7 @@ trivy:
 
   # serverTokenHeader is the name of the HTTP header used to send the authentication
   # token to Vul server. Only application in ClientServer mode when
-  # trivy.serverToken is specified.
+  # vul.serverToken is specified.
   serverTokenHeader: "Vul-Token"
 
   # serverCustomHeaders is a comma separated list of custom HTTP headers sent by
@@ -185,7 +185,7 @@ trivy:
   #
   # serverCustomHeaders: "foo=bar"
 
-  dbRepository: "ghcr.io/khulnasoft-lab/trivy-db"
+  dbRepository: "ghcr.io/khulnasoft-lab/vul-db"
 
 compliance:
   # failEntriesLimit the flag to limit the number of fail entries per control check in the cluster compliance detail report

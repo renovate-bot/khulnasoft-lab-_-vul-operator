@@ -165,23 +165,23 @@ spec:
         - name: scan-volume
           emptyDir: { }
       initContainers:
-        - name: trivy-get-binary
-          image: khulnasoft/trivy:0.19.2
+        - name: vul-get-binary
+          image: khulnasoft/vul:0.19.2
           command:
             - cp
             - -v
-            - /usr/local/bin/trivy
-            - /var/starboard/trivy
+            - /usr/local/bin/vul
+            - /var/starboard/vul
           volumeMounts:
             - name: scan-volume
               mountPath: /var/starboard
-        - name: trivy-download-db
-          image: khulnasoft/trivy:0.19.2
+        - name: vul-download-db
+          image: khulnasoft/vul:0.19.2
           command:
-            - /var/starboard/trivy
+            - /var/starboard/vul
             - --download-db-only
             - --cache-dir
-            - /var/starboard/trivy-db
+            - /var/starboard/vul-db
           volumeMounts:
             - name: scan-volume
               mountPath: /var/starboard
@@ -193,9 +193,9 @@ spec:
             # Vul must run as root, so we set UID here.
             runAsUser: 0
           command:
-            - /var/starboard/trivy
+            - /var/starboard/vul
             - --cache-dir
-            - /var/starboard/trivy-db
+            - /var/starboard/vul-db
             - fs
             - --format
             - json
@@ -220,4 +220,4 @@ With this approach starboard operator will not have to worry about managing(crea
 
 [ECR registry configuration]: https://khulnasoft-lab.github.io/starboard/v0.14.0/integrations/managed-registries/#amazon-elastic-container-registry-ecr
 [IAM role to service account]: https://docs.aws.amazon.com/eks/latest/userguide/specify-service-account-role.html
-[Vul fs command]: https://github.com/khulnasoft-lab/starboard/blob/main/docs/design/design_trivy_file_system_scanner.md
+[Vul fs command]: https://github.com/khulnasoft-lab/starboard/blob/main/docs/design/design_vul_file_system_scanner.md
