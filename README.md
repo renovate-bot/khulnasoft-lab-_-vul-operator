@@ -9,9 +9,6 @@ we encourage you to contribute to [Vul-Operator](https://github.com/khulnasoft-l
 
 for more info and [discussions](https://github.com/khulnasoft-lab/starboard/discussions/1173)
 
-Checkout the latest : [What's next for Vul Q&A](https://www.youtube.com/watch?v=u3cixRRJyYg)
-
-![Starboard logo](docs/images/starboard-logo.png)
 
 > Kubernetes-native security toolkit.
 
