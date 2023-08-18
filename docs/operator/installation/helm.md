@@ -24,14 +24,14 @@ except `kube-system` and `starboard-system`:
    helm install starboard-operator ./deploy/helm \
      --namespace starboard-system \
      --create-namespace \
-     --set="trivy.ignoreUnfixed=true"
+     --set="vul.ignoreUnfixed=true"
    ```
    Or install the chart from the KhulnaSoft chart repository:
    ```
    helm install starboard-operator khulnasoft/starboard-operator \
      --namespace starboard-system \
      --create-namespace \
-     --set="trivy.ignoreUnfixed=true" \
+     --set="vul.ignoreUnfixed=true" \
      --version {{ var.chart_version }}
    ```
    There are many [values] in the chart that can be set to configure Starboard.

@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	trivyScanner = v1alpha1.Scanner{
+	vulScanner = v1alpha1.Scanner{
 		Name:    "Vul",
 		Vendor:  "KhulnaSoft Security",
 		Version: "0.25.2",
@@ -80,7 +80,7 @@ func (m *vulnerabilityReportMatcher) Match(actual interface{}) (bool, error) {
 			}),
 		}),
 		"Report": MatchFields(IgnoreExtras, Fields{
-			"Scanner":         Equal(trivyScanner),
+			"Scanner":         Equal(vulScanner),
 			"Vulnerabilities": Not(BeNil()),
 		}),
 	})

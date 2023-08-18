@@ -9,7 +9,7 @@ import (
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/conftest"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/khulnasoft"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/polaris"
-	"github.com/khulnasoft-lab/starboard/pkg/plugin/trivy"
+	"github.com/khulnasoft-lab/starboard/pkg/plugin/vul"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	"github.com/khulnasoft-lab/starboard/pkg/vulnerabilityreport"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -87,7 +87,7 @@ func (r *Resolver) GetVulnerabilityPlugin() (vulnerabilityreport.Plugin, starboa
 
 	switch scanner {
 	case Vul:
-		return trivy.NewPlugin(ext.NewSystemClock(), ext.NewGoogleUUIDGenerator(), r.objectResolver), pluginContext, nil
+		return vul.NewPlugin(ext.NewSystemClock(), ext.NewGoogleUUIDGenerator(), r.objectResolver), pluginContext, nil
 	case KhulnaSoft:
 		return khulnasoft.NewPlugin(ext.NewGoogleUUIDGenerator(), r.buildInfo), pluginContext, nil
 	}

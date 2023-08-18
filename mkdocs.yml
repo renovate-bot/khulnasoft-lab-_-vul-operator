@@ -31,7 +31,7 @@ nav:
   - Settings: settings.md
   - Vulnerability Scanning:
       - Overview: vulnerability-scanning/index.md
-      - Vul Scanner: vulnerability-scanning/trivy.md
+      - Vul Scanner: vulnerability-scanning/vul.md
       - KhulnaSoft Enterprise Scanner: vulnerability-scanning/khulnasoft-enterprise.md
       - Private Registries: vulnerability-scanning/private-registries.md
       - Managed Registries: vulnerability-scanning/managed-registries.md

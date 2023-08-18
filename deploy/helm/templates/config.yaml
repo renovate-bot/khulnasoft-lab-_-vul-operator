@@ -35,66 +35,66 @@ metadata:
   labels:
     {{- include "starboard-operator.labels" . | nindent 4 }}
 {{- if eq .Values.starboard.vulnerabilityReportsPlugin "Vul" }}
-{{- with .Values.trivy }}
+{{- with .Values.vul }}
 {{- if .createConfig }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: starboard-trivy-config
+  name: starboard-vul-config
   labels:
     {{- include "starboard-operator.labels" $ | nindent 4 }}
 data:
-  trivy.imageRef: {{ required ".Values.trivy.imageRef is required" .imageRef | quote }}
-  trivy.mode: {{ .mode | quote }}
+  vul.imageRef: {{ required ".Values.vul.imageRef is required" .imageRef | quote }}
+  vul.mode: {{ .mode | quote }}
   {{- if .httpProxy }}
-  trivy.httpProxy: {{ .httpProxy | quote }}
+  vul.httpProxy: {{ .httpProxy | quote }}
   {{- end }}
   {{- if .httpsProxy }}
-  trivy.httpsProxy: {{ .httpsProxy | quote }}
+  vul.httpsProxy: {{ .httpsProxy | quote }}
   {{- end }}
   {{- if .serverInsecure }}
-  trivy.serverInsecure: {{ .serverInsecure | quote }}
+  vul.serverInsecure: {{ .serverInsecure | quote }}
   {{- end }}
   {{- if .noProxy }}
-  trivy.noProxy: {{ .noProxy | quote }}
+  vul.noProxy: {{ .noProxy | quote }}
   {{- end }}
   {{- range $key, $registry := .nonSslRegistries }}
-  trivy.nonSslRegistry.{{ $key }}: {{ $registry | quote }}
+  vul.nonSslRegistry.{{ $key }}: {{ $registry | quote }}
   {{- end }}
   {{- range $key, $registry := .registry.mirror }}
-  trivy.registry.mirror.{{ $key }}: {{ $registry | quote }}
+  vul.registry.mirror.{{ $key }}: {{ $registry | quote }}
   {{- end }}
-  trivy.severity: {{ .severity | quote }}
-  trivy.dbRepository: {{ .dbRepository | quote }}
+  vul.severity: {{ .severity | quote }}
+  vul.dbRepository: {{ .dbRepository | quote }}
   {{- if .ignoreUnfixed }}
-  trivy.ignoreUnfixed: {{ .ignoreUnfixed | quote }}
+  vul.ignoreUnfixed: {{ .ignoreUnfixed | quote }}
   {{- end }}
   {{- if .timeout }}
-  trivy.timeout: {{ .timeout | quote }}
+  vul.timeout: {{ .timeout | quote }}
   {{- end }}
   {{- with .ignoreFile }}
-  trivy.ignoreFile: |
+  vul.ignoreFile: |
 {{- . | trim | nindent 4 }}
   {{- end }}
   {{- if eq .mode "ClientServer" }}
-  trivy.serverURL: {{ required ".Values.trivy.serverURL is required" .serverURL | quote }}
+  vul.serverURL: {{ required ".Values.vul.serverURL is required" .serverURL | quote }}
   {{- end }}
   {{- with .resources }}
     {{- with .requests }}
       {{- if .cpu }}
-  trivy.resources.requests.cpu: {{ .cpu }}
+  vul.resources.requests.cpu: {{ .cpu }}
       {{- end }}
       {{- if hasKey . "memory" }}
-  trivy.resources.requests.memory: {{ .memory }}
+  vul.resources.requests.memory: {{ .memory }}
       {{- end }}
     {{- end }}
     {{- with .limits }}
       {{- if .cpu }}
-  trivy.resources.limits.cpu: {{ .cpu }}
+  vul.resources.limits.cpu: {{ .cpu }}
       {{- end }}
       {{- if .memory }}
-  trivy.resources.limits.memory: {{ .memory }}
+  vul.resources.limits.memory: {{ .memory }}
       {{- end }}
     {{- end }}
   {{- end }}
@@ -102,19 +102,19 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: starboard-trivy-config
+  name: starboard-vul-config
   labels:
     {{- include "starboard-operator.labels" $ | nindent 4 }}
 data:
   {{- if .githubToken }}
-  trivy.githubToken: {{ .githubToken | b64enc | quote }}
+  vul.githubToken: {{ .githubToken | b64enc | quote }}
   {{- end }}
   {{- if eq .mode "ClientServer" }}
   {{- if .serverToken }}
-  trivy.serverToken: {{ .serverToken | b64enc | quote }}
+  vul.serverToken: {{ .serverToken | b64enc | quote }}
   {{- end }}
   {{- if .serverCustomHeaders }}
-  trivy.serverCustomHeaders: {{ .serverCustomHeaders | b64enc | quote }}
+  vul.serverCustomHeaders: {{ .serverCustomHeaders | b64enc | quote }}
   {{- end }}
   {{- end }}
 {{- end }}

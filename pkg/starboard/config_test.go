@@ -416,23 +416,23 @@ func TestGetVersionFromImageRef(t *testing.T) {
 		expectedVersion string
 	}{
 		{
-			imageRef:        "docker.io/khulnasoft/trivy:0.9.1",
+			imageRef:        "docker.io/khulnasoft/vul:0.9.1",
 			expectedVersion: "0.9.1",
 		},
 		{
-			imageRef:        "docker.io/khulnasoft/trivy@sha256:5020dac24a63ef4f24452a0c63ebbfe93a5309e40f6353d1ee8221d2184ee954",
+			imageRef:        "docker.io/khulnasoft/vul@sha256:5020dac24a63ef4f24452a0c63ebbfe93a5309e40f6353d1ee8221d2184ee954",
 			expectedVersion: "sha256:5020dac24a63ef4f24452a0c63ebbfe93a5309e40f6353d1ee8221d2184ee954",
 		},
 		{
-			imageRef:        "khulnasoft/trivy:0.9.1",
+			imageRef:        "khulnasoft/vul:0.9.1",
 			expectedVersion: "0.9.1",
 		},
 		{
-			imageRef:        "khulnasoft/trivy:latest",
+			imageRef:        "khulnasoft/vul:latest",
 			expectedVersion: "latest",
 		},
 		{
-			imageRef:        "khulnasoft/trivy",
+			imageRef:        "khulnasoft/vul",
 			expectedVersion: "latest",
 		},
 	}

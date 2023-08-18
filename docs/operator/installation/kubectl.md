@@ -55,8 +55,8 @@ kubectl delete -f https://raw.githubusercontent.com/khulnasoft-lab/starboard/{{ 
 ```
 
 [Settings]: ./../../settings.md
-[Standalone]: ./../../vulnerability-scanning/trivy.md#standalone
-[ClientServer]: ./../../vulnerability-scanning/trivy.md#clientserver
+[Standalone]: ./../../vulnerability-scanning/vul.md#standalone
+[ClientServer]: ./../../vulnerability-scanning/vul.md#clientserver
 [KhulnaSoft Enterprise]: ./../../vulnerability-scanning/khulnasoft-enterprise.md
 [Kustomize]: https://kustomize.io
 [Helm]: ./helm.md

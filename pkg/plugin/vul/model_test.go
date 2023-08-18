@@ -1,1 +1,1 @@
-package trivy_test
+package vul_test

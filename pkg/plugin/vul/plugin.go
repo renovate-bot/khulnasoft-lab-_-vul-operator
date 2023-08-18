@@ -1,4 +1,4 @@
-package trivy
+package vul
 
 import (
 	"context"
@@ -32,37 +32,37 @@ const (
 )
 
 const (
-	keyVulImageRef               = "trivy.imageRef"
-	keyVulMode                   = "trivy.mode"
-	keyVulCommand                = "trivy.command"
-	keyVulSeverity               = "trivy.severity"
-	keyVulIgnoreUnfixed          = "trivy.ignoreUnfixed"
-	keyVulTimeout                = "trivy.timeout"
-	keyVulIgnoreFile             = "trivy.ignoreFile"
-	keyVulInsecureRegistryPrefix = "trivy.insecureRegistry."
-	keyVulNonSslRegistryPrefix   = "trivy.nonSslRegistry."
-	keyVulMirrorPrefix           = "trivy.registry.mirror."
-	keyVulHTTPProxy              = "trivy.httpProxy"
-	keyVulHTTPSProxy             = "trivy.httpsProxy"
-	keyVulNoProxy                = "trivy.noProxy"
-	keyVulGitHubToken            = "trivy.githubToken"
-	keyVulSkipFiles              = "trivy.skipFiles"
-	keyVulSkipDirs               = "trivy.skipDirs"
-	keyVulDBRepository           = "trivy.dbRepository"
+	keyVulImageRef               = "vul.imageRef"
+	keyVulMode                   = "vul.mode"
+	keyVulCommand                = "vul.command"
+	keyVulSeverity               = "vul.severity"
+	keyVulIgnoreUnfixed          = "vul.ignoreUnfixed"
+	keyVulTimeout                = "vul.timeout"
+	keyVulIgnoreFile             = "vul.ignoreFile"
+	keyVulInsecureRegistryPrefix = "vul.insecureRegistry."
+	keyVulNonSslRegistryPrefix   = "vul.nonSslRegistry."
+	keyVulMirrorPrefix           = "vul.registry.mirror."
+	keyVulHTTPProxy              = "vul.httpProxy"
+	keyVulHTTPSProxy             = "vul.httpsProxy"
+	keyVulNoProxy                = "vul.noProxy"
+	keyVulGitHubToken            = "vul.githubToken"
+	keyVulSkipFiles              = "vul.skipFiles"
+	keyVulSkipDirs               = "vul.skipDirs"
+	keyVulDBRepository           = "vul.dbRepository"
 
-	keyVulServerURL           = "trivy.serverURL"
-	keyVulServerTokenHeader   = "trivy.serverTokenHeader"
-	keyVulServerInsecure      = "trivy.serverInsecure"
-	keyVulServerToken         = "trivy.serverToken"
-	keyVulServerCustomHeaders = "trivy.serverCustomHeaders"
+	keyVulServerURL           = "vul.serverURL"
+	keyVulServerTokenHeader   = "vul.serverTokenHeader"
+	keyVulServerInsecure      = "vul.serverInsecure"
+	keyVulServerToken         = "vul.serverToken"
+	keyVulServerCustomHeaders = "vul.serverCustomHeaders"
 
-	keyResourcesRequestsCPU    = "trivy.resources.requests.cpu"
-	keyResourcesRequestsMemory = "trivy.resources.requests.memory"
-	keyResourcesLimitsCPU      = "trivy.resources.limits.cpu"
-	keyResourcesLimitsMemory   = "trivy.resources.limits.memory"
+	keyResourcesRequestsCPU    = "vul.resources.requests.cpu"
+	keyResourcesRequestsMemory = "vul.resources.requests.memory"
+	keyResourcesLimitsCPU      = "vul.resources.limits.cpu"
+	keyResourcesLimitsMemory   = "vul.resources.limits.memory"
 )
 
-const defaultDBRepository = "ghcr.io/khulnasoft-lab/trivy-db"
+const defaultDBRepository = "ghcr.io/khulnasoft-lab/vul-db"
 
 // Mode in which Vul client operates.
 type Mode string
@@ -252,7 +252,7 @@ func NewPlugin(clock ext.Clock, idGenerator ext.IDGenerator, objectResolver *kub
 func (p *plugin) Init(ctx starboard.PluginContext) error {
 	return ctx.EnsureConfig(starboard.PluginConfig{
 		Data: map[string]string{
-			keyVulImageRef:     "docker.io/khulnasoft/trivy:0.25.2",
+			keyVulImageRef:     "docker.io/khulnasoft/vul:0.25.2",
 			keyVulSeverity:     "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL",
 			keyVulMode:         string(Standalone),
 			keyVulTimeout:      "5m0s",
@@ -286,7 +286,7 @@ func (p *plugin) GetScanJobSpec(ctx starboard.PluginContext, workload client.Obj
 		case ClientServer:
 			return p.getPodSpecForClientServerMode(ctx, config, workload, credentials)
 		default:
-			return corev1.PodSpec{}, nil, fmt.Errorf("unrecognized trivy mode %q for command %q", mode, command)
+			return corev1.PodSpec{}, nil, fmt.Errorf("unrecognized vul mode %q for command %q", mode, command)
 		}
 	}
 
@@ -295,11 +295,11 @@ func (p *plugin) GetScanJobSpec(ctx starboard.PluginContext, workload client.Obj
 		case Standalone:
 			return p.getPodSpecForStandaloneFSMode(ctx, config, workload)
 		default:
-			return corev1.PodSpec{}, nil, fmt.Errorf("unrecognized trivy mode %q for command %q", mode, command)
+			return corev1.PodSpec{}, nil, fmt.Errorf("unrecognized vul mode %q for command %q", mode, command)
 		}
 	}
 
-	return corev1.PodSpec{}, nil, fmt.Errorf("unrecognized trivy command %q", command)
+	return corev1.PodSpec{}, nil, fmt.Errorf("unrecognized vul command %q", command)
 }
 
 func (p *plugin) newSecretWithAggregateImagePullCredentials(obj client.Object, spec corev1.PodSpec, credentials map[string]docker.Auth) *corev1.Secret {
@@ -318,7 +318,7 @@ const (
 	tmpVolumeName             = "tmp"
 	ignoreFileVolumeName      = "ignorefile"
 	FsSharedVolumeName        = "starboard"
-	SharedVolumeLocationOfVul = "/var/starboard/trivy"
+	SharedVolumeLocationOfVul = "/var/starboard/vul"
 )
 
 // In the Standalone mode there is the init container responsible for
@@ -326,13 +326,13 @@ const (
 // emptyDir volume shared with main containers. In other words, the init
 // container runs the following Vul command:
 //
-//	trivy --cache-dir /tmp/trivy/.cache image --download-db-only
+//	vul --cache-dir /tmp/vul/.cache image --download-db-only
 //
 // The number of main containers correspond to the number of containers
 // defined for the scanned workload. Each container runs the Vul image scan
 // command and skips the database download:
 //
-//	trivy --cache-dir /tmp/trivy/.cache image --skip-update \
+//	vul --cache-dir /tmp/vul/.cache image --skip-update \
 //	  --format json <container image>
 func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config Config, workload client.Object, credentials map[string]docker.Auth) (corev1.PodSpec, []*corev1.Secret, error) {
 	var secret *corev1.Secret
@@ -348,12 +348,12 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 		secrets = append(secrets, secret)
 	}
 
-	trivyImageRef, err := config.GetImageRef()
+	vulImageRef, err := config.GetImageRef()
 	if err != nil {
 		return corev1.PodSpec{}, nil, err
 	}
 
-	trivyConfigName := starboard.GetPluginConfigMapName(Plugin)
+	vulConfigName := starboard.GetPluginConfigMapName(Plugin)
 
 	dbRepository, err := config.GetDBRepository()
 	if err != nil {
@@ -367,7 +367,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 
 	initContainer := corev1.Container{
 		Name:                     p.idGenerator.GenerateID(),
-		Image:                    trivyImageRef,
+		Image:                    vulImageRef,
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 		Env: []corev1.EnvVar{
@@ -376,7 +376,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulHTTPProxy,
 						Optional: pointer.BoolPtr(true),
@@ -388,7 +388,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulHTTPSProxy,
 						Optional: pointer.BoolPtr(true),
@@ -400,7 +400,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulNoProxy,
 						Optional: pointer.BoolPtr(true),
@@ -412,7 +412,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulGitHubToken,
 						Optional: pointer.BoolPtr(true),
@@ -421,11 +421,11 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 			},
 		},
 		Command: []string{
-			"trivy",
+			"vul",
 		},
 		Args: []string{
 			"--cache-dir",
-			"/tmp/trivy/.cache",
+			"/tmp/vul/.cache",
 			"image",
 			"--download-db-only",
 			"--db-repository",
@@ -467,12 +467,12 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: trivyConfigName,
+						Name: vulConfigName,
 					},
 					Items: []corev1.KeyToPath{
 						{
 							Key:  keyVulIgnoreFile,
-							Path: ".trivyignore",
+							Path: ".vulignore",
 						},
 					},
 				},
@@ -481,8 +481,8 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      ignoreFileVolumeName,
-			MountPath: "/etc/trivy/.trivyignore",
-			SubPath:   ".trivyignore",
+			MountPath: "/etc/vul/.vulignore",
+			SubPath:   ".vulignore",
 		})
 	}
 
@@ -494,7 +494,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulSeverity,
 						Optional: pointer.BoolPtr(true),
@@ -506,7 +506,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulIgnoreUnfixed,
 						Optional: pointer.BoolPtr(true),
@@ -518,7 +518,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulTimeout,
 						Optional: pointer.BoolPtr(true),
@@ -530,7 +530,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulSkipFiles,
 						Optional: pointer.BoolPtr(true),
@@ -542,7 +542,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulSkipDirs,
 						Optional: pointer.BoolPtr(true),
@@ -554,7 +554,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulHTTPProxy,
 						Optional: pointer.BoolPtr(true),
@@ -566,7 +566,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulHTTPSProxy,
 						Optional: pointer.BoolPtr(true),
@@ -578,7 +578,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulNoProxy,
 						Optional: pointer.BoolPtr(true),
@@ -590,7 +590,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 		if config.IgnoreFileExists() {
 			env = append(env, corev1.EnvVar{
 				Name:  "VUL_IGNOREFILE",
-				Value: "/etc/trivy/.trivyignore",
+				Value: "/etc/vul/.vulignore",
 			})
 		}
 
@@ -651,16 +651,16 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 
 		containers = append(containers, corev1.Container{
 			Name:                     c.Name,
-			Image:                    trivyImageRef,
+			Image:                    vulImageRef,
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 			Env:                      env,
 			Command: []string{
-				"trivy",
+				"vul",
 			},
 			Args: []string{
 				"--cache-dir",
-				"/tmp/trivy/.cache",
+				"/tmp/vul/.cache",
 				"--quiet",
 				"image",
 				"--skip-update",
@@ -698,7 +698,7 @@ func (p *plugin) getPodSpecForStandaloneMode(ctx starboard.PluginContext, config
 // Each container runs Vul image scan command and refers to Vul server URL
 // returned by Config.GetServerURL:
 //
-//	trivy client --remote <server URL> \
+//	vul client --remote <server URL> \
 //	  --format json <container image>
 func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, config Config, workload client.Object, credentials map[string]docker.Auth) (corev1.PodSpec, []*corev1.Secret, error) {
 	var secret *corev1.Secret
@@ -711,12 +711,12 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 		return corev1.PodSpec{}, nil, err
 	}
 
-	trivyImageRef, err := config.GetImageRef()
+	vulImageRef, err := config.GetImageRef()
 	if err != nil {
 		return corev1.PodSpec{}, nil, err
 	}
 
-	trivyServerURL, err := config.GetServerURL()
+	vulServerURL, err := config.GetServerURL()
 	if err != nil {
 		return corev1.PodSpec{}, nil, err
 	}
@@ -728,7 +728,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 
 	var containers []corev1.Container
 
-	trivyConfigName := starboard.GetPluginConfigMapName(Plugin)
+	vulConfigName := starboard.GetPluginConfigMapName(Plugin)
 
 	for _, container := range spec.Containers {
 
@@ -738,7 +738,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulHTTPProxy,
 						Optional: pointer.BoolPtr(true),
@@ -750,7 +750,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulHTTPSProxy,
 						Optional: pointer.BoolPtr(true),
@@ -762,7 +762,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulNoProxy,
 						Optional: pointer.BoolPtr(true),
@@ -774,7 +774,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulSeverity,
 						Optional: pointer.BoolPtr(true),
@@ -786,7 +786,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulIgnoreUnfixed,
 						Optional: pointer.BoolPtr(true),
@@ -798,7 +798,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulTimeout,
 						Optional: pointer.BoolPtr(true),
@@ -810,7 +810,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulSkipFiles,
 						Optional: pointer.BoolPtr(true),
@@ -822,7 +822,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulSkipDirs,
 						Optional: pointer.BoolPtr(true),
@@ -834,7 +834,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulServerTokenHeader,
 						Optional: pointer.BoolPtr(true),
@@ -846,7 +846,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulServerToken,
 						Optional: pointer.BoolPtr(true),
@@ -858,7 +858,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulServerCustomHeaders,
 						Optional: pointer.BoolPtr(true),
@@ -918,12 +918,12 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							LocalObjectReference: corev1.LocalObjectReference{
-								Name: trivyConfigName,
+								Name: vulConfigName,
 							},
 							Items: []corev1.KeyToPath{
 								{
 									Key:  keyVulIgnoreFile,
-									Path: ".trivyignore",
+									Path: ".vulignore",
 								},
 							},
 						},
@@ -934,14 +934,14 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 			volumeMounts = []corev1.VolumeMount{
 				{
 					Name:      ignoreFileVolumeName,
-					MountPath: "/etc/trivy/.trivyignore",
-					SubPath:   ".trivyignore",
+					MountPath: "/etc/vul/.vulignore",
+					SubPath:   ".vulignore",
 				},
 			}
 
 			env = append(env, corev1.EnvVar{
 				Name:  "VUL_IGNOREFILE",
-				Value: "/etc/trivy/.trivyignore",
+				Value: "/etc/vul/.vulignore",
 			})
 		}
 
@@ -957,12 +957,12 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 
 		containers = append(containers, corev1.Container{
 			Name:                     container.Name,
-			Image:                    trivyImageRef,
+			Image:                    vulImageRef,
 			ImagePullPolicy:          corev1.PullIfNotPresent,
 			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 			Env:                      env,
 			Command: []string{
-				"trivy",
+				"vul",
 			},
 			Args: []string{
 				"--quiet",
@@ -970,7 +970,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 				"--format",
 				"json",
 				"--remote",
-				trivyServerURL,
+				vulServerURL,
 				optionalMirroredImage,
 			},
 			VolumeMounts: volumeMounts,
@@ -992,7 +992,7 @@ func (p *plugin) getPodSpecForClientServerMode(ctx starboard.PluginContext, conf
 // The only difference is that instead of scanning the resource by name,
 // We scanning the resource place on a specific file system location using the following command.
 //
-//	trivy --quiet fs  --format json --ignore-unfixed  file/system/location
+//	vul --quiet fs  --format json --ignore-unfixed  file/system/location
 func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, config Config,
 	workload client.Object) (corev1.PodSpec, []*corev1.Secret, error) {
 	var secrets []*corev1.Secret
@@ -1013,12 +1013,12 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 		pullPolicy = corev1.PullNever
 	}
 
-	trivyImageRef, err := config.GetImageRef()
+	vulImageRef, err := config.GetImageRef()
 	if err != nil {
 		return corev1.PodSpec{}, nil, err
 	}
 
-	trivyConfigName := starboard.GetPluginConfigMapName(Plugin)
+	vulConfigName := starboard.GetPluginConfigMapName(Plugin)
 
 	dbRepository, err := config.GetDBRepository()
 	if err != nil {
@@ -1040,13 +1040,13 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 
 	initContainerCopyBinary := corev1.Container{
 		Name:                     p.idGenerator.GenerateID(),
-		Image:                    trivyImageRef,
+		Image:                    vulImageRef,
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 		Command: []string{
 			"cp",
 			"-v",
-			"/usr/local/bin/trivy",
+			"/usr/local/bin/vul",
 			SharedVolumeLocationOfVul,
 		},
 		Resources:    requirements,
@@ -1055,19 +1055,19 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 
 	initContainerDB := corev1.Container{
 		Name:                     p.idGenerator.GenerateID(),
-		Image:                    trivyImageRef,
+		Image:                    vulImageRef,
 		ImagePullPolicy:          corev1.PullIfNotPresent,
 		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
 		Env: []corev1.EnvVar{
-			constructEnvVarSourceFromConfigMap("HTTP_PROXY", trivyConfigName, keyVulHTTPProxy),
-			constructEnvVarSourceFromConfigMap("HTTPS_PROXY", trivyConfigName, keyVulHTTPSProxy),
-			constructEnvVarSourceFromConfigMap("NO_PROXY", trivyConfigName, keyVulNoProxy),
+			constructEnvVarSourceFromConfigMap("HTTP_PROXY", vulConfigName, keyVulHTTPProxy),
+			constructEnvVarSourceFromConfigMap("HTTPS_PROXY", vulConfigName, keyVulHTTPSProxy),
+			constructEnvVarSourceFromConfigMap("NO_PROXY", vulConfigName, keyVulNoProxy),
 			{
 				Name: "GITHUB_TOKEN",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: trivyConfigName,
+							Name: vulConfigName,
 						},
 						Key:      keyVulGitHubToken,
 						Optional: pointer.BoolPtr(true),
@@ -1076,12 +1076,12 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 			},
 		},
 		Command: []string{
-			"trivy",
+			"vul",
 		},
 		Args: []string{
 			"--download-db-only",
 			"--cache-dir",
-			"/var/starboard/trivy-db",
+			"/var/starboard/vul-db",
 			"--db-repository",
 			dbRepository,
 		},
@@ -1109,12 +1109,12 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: trivyConfigName,
+						Name: vulConfigName,
 					},
 					Items: []corev1.KeyToPath{
 						{
 							Key:  keyVulIgnoreFile,
-							Path: ".trivyignore",
+							Path: ".vulignore",
 						},
 					},
 				},
@@ -1123,30 +1123,30 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
 			Name:      ignoreFileVolumeName,
-			MountPath: "/tmp/trivy/.trivyignore",
-			SubPath:   ".trivyignore",
+			MountPath: "/tmp/vul/.vulignore",
+			SubPath:   ".vulignore",
 		})
 	}
 
 	for _, c := range spec.Containers {
 
 		env := []corev1.EnvVar{
-			constructEnvVarSourceFromConfigMap("VUL_SEVERITY", trivyConfigName, keyVulSeverity),
-			constructEnvVarSourceFromConfigMap("VUL_SKIP_FILES", trivyConfigName, keyVulSkipFiles),
-			constructEnvVarSourceFromConfigMap("VUL_SKIP_DIRS", trivyConfigName, keyVulSkipDirs),
-			constructEnvVarSourceFromConfigMap("HTTP_PROXY", trivyConfigName, keyVulHTTPProxy),
-			constructEnvVarSourceFromConfigMap("HTTPS_PROXY", trivyConfigName, keyVulHTTPSProxy),
-			constructEnvVarSourceFromConfigMap("NO_PROXY", trivyConfigName, keyVulNoProxy),
+			constructEnvVarSourceFromConfigMap("VUL_SEVERITY", vulConfigName, keyVulSeverity),
+			constructEnvVarSourceFromConfigMap("VUL_SKIP_FILES", vulConfigName, keyVulSkipFiles),
+			constructEnvVarSourceFromConfigMap("VUL_SKIP_DIRS", vulConfigName, keyVulSkipDirs),
+			constructEnvVarSourceFromConfigMap("HTTP_PROXY", vulConfigName, keyVulHTTPProxy),
+			constructEnvVarSourceFromConfigMap("HTTPS_PROXY", vulConfigName, keyVulHTTPSProxy),
+			constructEnvVarSourceFromConfigMap("NO_PROXY", vulConfigName, keyVulNoProxy),
 		}
 		if config.IgnoreFileExists() {
 			env = append(env, corev1.EnvVar{
 				Name:  "VUL_IGNOREFILE",
-				Value: "/tmp/trivy/.trivyignore",
+				Value: "/tmp/vul/.vulignore",
 			})
 		}
 		if config.IgnoreUnfixed() {
 			env = append(env, constructEnvVarSourceFromConfigMap("VUL_IGNORE_UNFIXED",
-				trivyConfigName, keyVulIgnoreUnfixed))
+				vulConfigName, keyVulIgnoreUnfixed))
 		}
 
 		env, err = p.appendVulInsecureEnv(config, c.Image, env)
@@ -1170,7 +1170,7 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 			Args: []string{
 				"--skip-update",
 				"--cache-dir",
-				"/var/starboard/trivy-db",
+				"/var/starboard/vul-db",
 				"--quiet",
 				"fs",
 				"--format",
@@ -1179,7 +1179,7 @@ func (p *plugin) getPodSpecForStandaloneFSMode(ctx starboard.PluginContext, conf
 			},
 			Resources:    resourceRequirements,
 			VolumeMounts: volumeMounts,
-			// Todo review security Context which is better for trivy fs scan
+			// Todo review security Context which is better for vul fs scan
 			SecurityContext: &corev1.SecurityContext{
 				Privileged:               pointer.BoolPtr(false),
 				AllowPrivilegeEscalation: pointer.BoolPtr(false),
@@ -1279,12 +1279,12 @@ func (p *plugin) ParseVulnerabilityReportData(ctx starboard.PluginContext, image
 		return v1alpha1.VulnerabilityReportData{}, err
 	}
 
-	trivyImageRef, err := config.GetImageRef()
+	vulImageRef, err := config.GetImageRef()
 	if err != nil {
 		return v1alpha1.VulnerabilityReportData{}, err
 	}
 
-	version, err := starboard.GetVersionFromImageRef(trivyImageRef)
+	version, err := starboard.GetVersionFromImageRef(vulImageRef)
 	if err != nil {
 		return v1alpha1.VulnerabilityReportData{}, err
 	}

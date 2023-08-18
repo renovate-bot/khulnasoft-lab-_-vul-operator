@@ -1,4 +1,4 @@
-package trivy
+package vul
 
 import (
 	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"

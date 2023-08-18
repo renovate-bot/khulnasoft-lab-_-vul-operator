@@ -129,6 +129,6 @@ We can't use something like ownerReference since it would delete all vulnerabili
   a gate.
 * Both Starboard CLI and Starboard Operator can read and leverage ClusterVulnerabilityReports.
 
-[Standalone]: https://khulnasoft-lab.github.io/starboard/v0.12.0/integrations/vulnerability-scanners/trivy/#standalone
-[ClientServer]: https://khulnasoft-lab.github.io/starboard/v0.12.0/integrations/vulnerability-scanners/trivy/#clientserver
+[Standalone]: https://khulnasoft-lab.github.io/starboard/v0.12.0/integrations/vulnerability-scanners/vul/#standalone
+[ClientServer]: https://khulnasoft-lab.github.io/starboard/v0.12.0/integrations/vulnerability-scanners/vul/#clientserver
 [PR #879]: (https://github.com/khulnasoft-lab/starboard/pull/879)

@@ -115,38 +115,38 @@ spec:
         - name: scan-volume
           emptyDir: { }
       initContainers:
-        # The trivy-get-binary init container is used to copy out the trivy executable
-        # binary from the upstream Vul container image, i.e. khulnasoft/trivy:0.19.2,
+        # The vul-get-binary init container is used to copy out the vul executable
+        # binary from the upstream Vul container image, i.e. khulnasoft/vul:0.19.2,
         # to a shared emptyDir volume.
-        - name: trivy-get-binary
-          image: khulnasoft/trivy:0.19.2
+        - name: vul-get-binary
+          image: khulnasoft/vul:0.19.2
           command:
             - cp
             - -v
-            - /usr/local/bin/trivy
-            - /var/starboard/trivy
+            - /usr/local/bin/vul
+            - /var/starboard/vul
           volumeMounts:
             - name: scan-volume
               mountPath: /var/starboard
-        # The trivy-download-db container is using trivy executable binary
+        # The vul-download-db container is using vul executable binary
         # from the previous step to download Vul vulnerability database
         # from GitHub releases page.
         # This won't be required once Vul supports ClientServer mode
         # for the fs subcommand.
-        - name: trivy-download-db
-          image: khulnasoft/trivy:0.19.2
+        - name: vul-download-db
+          image: khulnasoft/vul:0.19.2
           command:
-            - /var/starboard/trivy
+            - /var/starboard/vul
             - --download-db-only
             - --cache-dir
-            - /var/starboard/trivy-db
+            - /var/starboard/vul-db
           volumeMounts:
             - name: scan-volume
               mountPath: /var/starboard
       containers:
         # The nginx container is based on the container image that
         # we want to scan with Vul. However, it has overwritten command (entrypoint)
-        # to invoke trivy file system scan. The scan results are output to stdout
+        # to invoke vul file system scan. The scan results are output to stdout
         # in JSON format, so we can parse them and store as VulnerabilityReport.
         - name: nginx
           image: example.registry.com/nginx:1.16
@@ -157,9 +157,9 @@ spec:
             # Vul must run as root, so we set UID here.
             runAsUser: 0
           command:
-            - /var/starboard/trivy
+            - /var/starboard/vul
             - --cache-dir
-            - /var/starboard/trivy-db
+            - /var/starboard/vul-db
             - fs
             - --format
             - json
@@ -194,8 +194,8 @@ Vul must run as root so the scan Job defined the `securityContext` with the `run
 
 [Devendra Turkar]: https://github.com/deven0t
 [Daniel Pacak]: https://github.com/danielpacak
-[Standalone]: https://khulnasoft-lab.github.io/starboard/v0.13.2/integrations/vulnerability-scanners/trivy/#standalone
-[ClientServer]: https://khulnasoft-lab.github.io/starboard/v0.13.2/integrations/vulnerability-scanners/trivy/#clientserver
+[Standalone]: https://khulnasoft-lab.github.io/starboard/v0.13.2/integrations/vulnerability-scanners/vul/#standalone
+[ClientServer]: https://khulnasoft-lab.github.io/starboard/v0.13.2/integrations/vulnerability-scanners/vul/#clientserver
 [Configuring nodes to authenticate to a private registry]: https://kubernetes.io/docs/concepts/containers/images/#configuring-nodes-to-authenticate-to-a-private-registry
 [AWS ECR Private registry authentication]: https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html
 [AlwaysPullImages]: https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#alwayspullimages
