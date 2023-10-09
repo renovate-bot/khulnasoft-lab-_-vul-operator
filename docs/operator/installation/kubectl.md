@@ -24,7 +24,7 @@ kubectl logs deployment/starboard-operator -n starboard-system
 
 Starboard ensures the default [Settings] stored in ConfigMaps and Secrets created in the `starboard-system` namespace.
 You can always change these settings by editing configuration objects. For example, you can use Vul in [ClientServer]
-mode, which is more efficient that the [Standalone] mode, or switch to [KhulnaSoft Enterprise] as an alternative vulnerability
+mode, which is more efficient that the [Standalone] mode, or switch to [Khulnasoft Enterprise] as an alternative vulnerability
 scanner.
 
 You can further adjust the [Configuration](./../configuration.md) of the operator with environment variables. For
@@ -57,7 +57,7 @@ kubectl delete -f https://raw.githubusercontent.com/khulnasoft-lab/starboard/{{ 
 [Settings]: ./../../settings.md
 [Standalone]: ./../../vulnerability-scanning/vul.md#standalone
 [ClientServer]: ./../../vulnerability-scanning/vul.md#clientserver
-[KhulnaSoft Enterprise]: ./../../vulnerability-scanning/khulnasoft-enterprise.md
+[Khulnasoft Enterprise]: ./../../vulnerability-scanning/khulnasoft-enterprise.md
 [Kustomize]: https://kustomize.io
 [Helm]: ./helm.md
 [NSA, CISA Kubernetes Hardening Guidance v1.0]: ./../../specs/NSA_Kubernetes_Hardening_Guidance_1.0.pdf

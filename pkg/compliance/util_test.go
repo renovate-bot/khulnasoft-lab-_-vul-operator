@@ -1,10 +1,11 @@
 package compliance
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 )
 
 func TestMapResources(t *testing.T) {

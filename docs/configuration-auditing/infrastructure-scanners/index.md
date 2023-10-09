@@ -39,7 +39,7 @@ starboard report nodes/kind-control-plane > kind-control-plane-report.html
 open kind-control-plane-report.html
 ```
 
-![KhulnaSoft Starboard Node Security HTML Report](../../images/node01-report.png)
+![Khulnasoft Starboard Node Security HTML Report](../../images/node01-report.png)
 
 
 ## Kube-hunter

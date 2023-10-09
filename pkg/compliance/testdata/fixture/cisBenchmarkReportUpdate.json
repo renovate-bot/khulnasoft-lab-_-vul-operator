@@ -25,7 +25,7 @@
   "report": {
     "scanner": {
       "name": "kube-bench",
-      "vendor": "KhulnaSoft Security",
+      "vendor": "KhulnaSoft",
       "version": "v0.6.5"
     },
     "sections": [

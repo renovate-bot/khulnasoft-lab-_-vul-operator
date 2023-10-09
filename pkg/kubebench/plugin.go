@@ -3,7 +3,7 @@ package kubebench
 import (
 	"io"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 )
 

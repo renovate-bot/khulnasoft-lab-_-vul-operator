@@ -19,7 +19,7 @@ metadata:
 report:
   scanner:
     name: kube-hunter
-    vendor: KhulnaSoft Security
+    vendor: KhulnaSoft
     version: 0.4.1
   summary:
     highCount: 0

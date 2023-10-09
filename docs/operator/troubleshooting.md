@@ -87,7 +87,7 @@ An easy way to check this is by looking for the `ClusterRoleBinding` for the Sta
 kubectl get ClusterRoleBinding | grep "starboard-operator"
 ```
 
-Alternatively, you could use the `kubectl-who-can` [plugin by KhulnaSoft](https://github.com/khulnasoft-lab/kubectl-who-can):
+Alternatively, you could use the `kubectl-who-can` [plugin by Khulnasoft](https://github.com/khulnasoft-lab/kubectl-who-can):
 
 ```console
 $ kubectl who-can list vulnerabilityreports

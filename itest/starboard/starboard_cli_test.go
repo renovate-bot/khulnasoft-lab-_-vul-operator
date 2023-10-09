@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/khulnasoft-lab/starboard/itest/helper"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/cmd"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
@@ -1263,7 +1263,7 @@ var _ = Describe("Starboard CLI", func() {
 					"Report": MatchFields(IgnoreExtras, Fields{
 						"Scanner": Equal(v1alpha1.Scanner{
 							Name:    "kube-bench",
-							Vendor:  "KhulnaSoft Security",
+							Vendor:  "KhulnaSoft",
 							Version: "v0.6.9",
 						}),
 					}),

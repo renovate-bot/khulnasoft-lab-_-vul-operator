@@ -1,7 +1,7 @@
 package starboard
 
 const (
-	Banner = `Starboard is an KhulnaSoft Security open source project.
+	Banner = `Starboard is an KhulnaSoft open source project.
 Learn about our open source work and portfolio on https://www.khulnasoft.com/products/open-source-projects/.
 `
 )

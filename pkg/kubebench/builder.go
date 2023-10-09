@@ -3,7 +3,7 @@ package kubebench
 import (
 	"fmt"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

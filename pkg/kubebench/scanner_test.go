@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kubebench"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"

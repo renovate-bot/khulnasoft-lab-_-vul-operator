@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -123,8 +123,8 @@ func (s *Scanner) convert(imageRef string, khulnasoftReport ScanReport) (report 
 	report = v1alpha1.VulnerabilityReportData{
 		UpdateTimestamp: metav1.NewTime(time.Now()),
 		Scanner: v1alpha1.Scanner{
-			Name:    "KhulnaSoft CSP",
-			Vendor:  "KhulnaSoft Security",
+			Name:    "Khulnasoft CSP",
+			Vendor:  "KhulnaSoft",
 			Version: s.scanOptions.Version,
 		},
 		Registry: v1alpha1.Registry{
@@ -138,7 +138,7 @@ func (s *Scanner) convert(imageRef string, khulnasoftReport ScanReport) (report 
 }
 
 func (s *Scanner) toSeverity(v Vulnerability) v1alpha1.Severity {
-	switch severity := v.KhulnaSoftSeverity; severity {
+	switch severity := v.KhulnasoftSeverity; severity {
 	case "critical":
 		return v1alpha1.SeverityCritical
 	case "high":

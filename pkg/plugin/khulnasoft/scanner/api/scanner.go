@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/khulnasoft/client"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/khulnasoft/scanner/cli"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,7 +38,7 @@ func (s *Scanner) Scan(imageRef string) (v1alpha1.VulnerabilityReportData, error
 	}
 	repo := reference.Context().RepositoryStr()
 	if cli.Command(s.options.Command) == cli.Filesystem {
-		// in case of fs command, full repo name required for KhulnaSoft console
+		// in case of fs command, full repo name required for Khulnasoft console
 		repo = reference.Context().RegistryStr() + "/" + reference.Context().RepositoryStr()
 	}
 	vulnerabilities, err := s.clientset.Images().Vulnerabilities(registryName, repo, reference.Identifier())
@@ -103,8 +103,8 @@ func (s *Scanner) convert(ref name.Reference, response client.VulnerabilitiesRes
 	return v1alpha1.VulnerabilityReportData{
 		UpdateTimestamp: metav1.NewTime(time.Now()),
 		Scanner: v1alpha1.Scanner{
-			Name:    "KhulnaSoft CSP",
-			Vendor:  "KhulnaSoft Security",
+			Name:    "Khulnasoft CSP",
+			Vendor:  "KhulnaSoft",
 			Version: s.options.Version,
 		},
 		Registry: v1alpha1.Registry{
@@ -118,7 +118,7 @@ func (s *Scanner) convert(ref name.Reference, response client.VulnerabilitiesRes
 
 // TODO we have the same method for parsing scannercli output
 func (s *Scanner) toSeverity(v client.VulnerabilitiesResponseResult) v1alpha1.Severity {
-	switch severity := v.KhulnaSoftSeverity; severity {
+	switch severity := v.KhulnasoftSeverity; severity {
 	case "critical":
 		return v1alpha1.SeverityCritical
 	case "high":

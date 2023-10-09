@@ -14,7 +14,7 @@ except `kube-system` and `starboard-system`:
    git clone --depth 1 --branch {{ git.tag }} https://github.com/khulnasoft-lab/starboard.git
    cd starboard
    ```
-   Or add KhulnaSoft chart repository:
+   Or add Khulnasoft chart repository:
    ```
    helm repo add khulnasoft https://khulnasoft-lab.github.io/helm-charts/
    helm repo update
@@ -26,7 +26,7 @@ except `kube-system` and `starboard-system`:
      --create-namespace \
      --set="vul.ignoreUnfixed=true"
    ```
-   Or install the chart from the KhulnaSoft chart repository:
+   Or install the chart from the Khulnasoft chart repository:
    ```
    helm install starboard-operator khulnasoft/starboard-operator \
      --namespace starboard-system \

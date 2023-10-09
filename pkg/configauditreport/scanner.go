@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/policy"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
@@ -78,7 +78,7 @@ func (s *Scanner) Scan(ctx context.Context, resourceRef kube.ObjectRef) (*Report
 	data := v1alpha1.ConfigAuditReportData{
 		Scanner: v1alpha1.Scanner{
 			Name:    "Starboard",
-			Vendor:  "KhulnaSoft Security",
+			Vendor:  "KhulnaSoft",
 			Version: s.buildInfo.Version,
 		},
 		Summary: v1alpha1.ConfigAuditSummaryFromChecks(checks),

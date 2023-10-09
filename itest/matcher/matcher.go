@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	"github.com/onsi/gomega/types"
@@ -20,12 +20,12 @@ import (
 var (
 	vulScanner = v1alpha1.Scanner{
 		Name:    "Vul",
-		Vendor:  "KhulnaSoft Security",
+		Vendor:  "KhulnaSoft",
 		Version: "0.25.2",
 	}
 	builtInScanner = v1alpha1.Scanner{
 		Name:    "Starboard",
-		Vendor:  "KhulnaSoft Security",
+		Vendor:  "KhulnaSoft",
 		Version: "dev",
 	}
 )

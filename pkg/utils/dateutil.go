@@ -1,9 +1,10 @@
 package utils
 
 import (
+	"time"
+
 	"github.com/gorhill/cronexpr"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
-	"time"
 )
 
 // NextCronDuration check if next cron activation time has exceeded if so return true

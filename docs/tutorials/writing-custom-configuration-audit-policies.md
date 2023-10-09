@@ -184,7 +184,7 @@ metadata:
 report:
   scanner:
     name: Starboard
-    vendor: KhulnaSoft Security
+    vendor: KhulnaSoft
     version: {{ git.tag }}
   summary:
     criticalCount: 0

@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega/ghttp"
 )
 
-var _ = Describe("The KhulnaSoft API client", func() {
+var _ = Describe("The Khulnasoft API client", func() {
 
 	var server *Server
 	var khulnasoftClient client.Clientset
@@ -121,9 +121,9 @@ var _ = Describe("The KhulnaSoft API client", func() {
 							Version: "2.9.4+dfsg1-7+b3",
 						},
 						Name:                    "CVE-2020-3909",
-						KhulnaSoftSeverity:      "high",
-						KhulnaSoftVectors:       "AV:N/AC:L/Au:N/C:P/I:P/A:P",
-						KhulnaSoftScoringSystem: "CVSS V2",
+						KhulnasoftSeverity:      "high",
+						KhulnasoftVectors:       "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+						KhulnasoftScoringSystem: "CVSS V2",
 						FixVersion:              "",
 					},
 					{
@@ -137,9 +137,9 @@ var _ = Describe("The KhulnaSoft API client", func() {
 							Version: "2.9.4+dfsg1-7+b3",
 						},
 						Name:                    "CVE-2020-3910",
-						KhulnaSoftSeverity:      "high",
-						KhulnaSoftVectors:       "AV:N/AC:L/Au:N/C:P/I:P/A:P",
-						KhulnaSoftScoringSystem: "CVSS V2",
+						KhulnasoftSeverity:      "high",
+						KhulnasoftVectors:       "AV:N/AC:L/Au:N/C:P/I:P/A:P",
+						KhulnasoftScoringSystem: "CVSS V2",
 						FixVersion:              "",
 					},
 				},

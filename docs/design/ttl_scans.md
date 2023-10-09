@@ -49,7 +49,7 @@ report:
     server: ghcr.io
   scanner:
     name: Vul
-    vendor: KhulnaSoft Security
+    vendor: KhulnaSoft
     version: 0.19.2
   summary:
     criticalCount: 0

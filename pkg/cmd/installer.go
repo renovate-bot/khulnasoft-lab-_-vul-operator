@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	embedded "github.com/khulnasoft-lab/starboard"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	corev1 "k8s.io/api/core/v1"

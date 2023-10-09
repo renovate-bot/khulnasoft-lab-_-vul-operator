@@ -5,7 +5,7 @@ metadata:
   name: kubehunterreports.khulnasoft-lab.github.io
   labels:
     app.kubernetes.io/managed-by: starboard
-    app.kubernetes.io/version: "0.15.13"
+    app.kubernetes.io/version: "0.15.15"
 spec:
   group: khulnasoft-lab.github.io
   versions:

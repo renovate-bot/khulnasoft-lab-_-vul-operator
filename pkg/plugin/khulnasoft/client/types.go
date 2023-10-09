@@ -11,9 +11,9 @@ type VulnerabilitiesResponseResult struct {
 	Resource                Resource `json:"resource"`
 	Name                    string   `json:"name"` // e.g. CVE-2020-3910
 	Description             string   `json:"description"`
-	KhulnaSoftSeverity      string   `json:"khulnasoft_severity"`
-	KhulnaSoftVectors       string   `json:"khulnasoft_vectors"`
-	KhulnaSoftScoringSystem string   `json:"khulnasoft_scoring_system"`
+	KhulnasoftSeverity      string   `json:"khulnasoft_severity"`
+	KhulnasoftVectors       string   `json:"khulnasoft_vectors"`
+	KhulnasoftScoringSystem string   `json:"khulnasoft_scoring_system"`
 	FixVersion              string   `json:"fix_version"`
 }
 

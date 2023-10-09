@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/fake"
 	"github.com/khulnasoft-lab/starboard/pkg/kubehunter"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
@@ -26,7 +26,7 @@ func TestWriter_Write(t *testing.T) {
 		}, "my-cluster")
 		require.NoError(t, err)
 
-		list, err := clientset.KhulnaSoftsecurityV1alpha1().KubeHunterReports().List(context.TODO(), metav1.ListOptions{})
+		list, err := clientset.KhulnasoftV1alpha1().KubeHunterReports().List(context.TODO(), metav1.ListOptions{})
 		require.NoError(t, err)
 
 		reports := map[string]v1alpha1.KubeHunterReport{}
@@ -75,7 +75,7 @@ func TestWriter_Write(t *testing.T) {
 		}, "my-cluster")
 		require.NoError(t, err)
 
-		list, err := clientset.KhulnaSoftsecurityV1alpha1().KubeHunterReports().List(context.TODO(), metav1.ListOptions{})
+		list, err := clientset.KhulnasoftV1alpha1().KubeHunterReports().List(context.TODO(), metav1.ListOptions{})
 		require.NoError(t, err)
 
 		reports := map[string]v1alpha1.KubeHunterReport{}

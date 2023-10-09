@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/policy"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"

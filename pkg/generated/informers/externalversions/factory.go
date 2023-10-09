@@ -8,7 +8,7 @@ import (
 	time "time"
 
 	versioned "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned"
-	khulnasoft-lab "github.com/khulnasoft-lab/starboard/pkg/generated/informers/externalversions/khulnasoft-lab"
+	khulnasoft "github.com/khulnasoft-lab/starboard/pkg/generated/informers/externalversions/khulnasoft"
 	internalinterfaces "github.com/khulnasoft-lab/starboard/pkg/generated/informers/externalversions/internalinterfaces"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -156,9 +156,9 @@ type SharedInformerFactory interface {
 	ForResource(resource schema.GroupVersionResource) (GenericInformer, error)
 	WaitForCacheSync(stopCh <-chan struct{}) map[reflect.Type]bool
 
-	KhulnaSoftsecurity() khulnasoft-lab.Interface
+	Khulnasoft() khulnasoft.Interface
 }
 
-func (f *sharedInformerFactory) KhulnaSoftsecurity() khulnasoft-lab.Interface {
-	return khulnasoft-lab.New(f, f.namespace, f.tweakListOptions)
+func (f *sharedInformerFactory) Khulnasoft() khulnasoft.Interface {
+	return khulnasoft.New(f, f.namespace, f.tweakListOptions)
 }

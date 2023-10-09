@@ -5,7 +5,7 @@
 package templates
 
 //line pkg/report/templates/namespace_report.qtpl:1
-import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 
 //line pkg/report/templates/namespace_report.qtpl:3
 import (
@@ -24,7 +24,7 @@ var (
 func (p *NamespaceReport) StreamTitle(qw422016 *qt422016.Writer) {
 //line pkg/report/templates/namespace_report.qtpl:3
 	qw422016.N().S(`
-KhulnaSoft Starboard Namespace Security Report - Namespace: `)
+Khulnasoft Starboard Namespace Security Report - Namespace: `)
 //line pkg/report/templates/namespace_report.qtpl:4
 	qw422016.E().S(p.Namespace.Name)
 //line pkg/report/templates/namespace_report.qtpl:4
@@ -68,11 +68,11 @@ func (p *NamespaceReport) StreamBody(qw422016 *qt422016.Writer) {
   <div class="col mt-5">
     <div class="row text-center">`)
 //line pkg/report/templates/namespace_report.qtpl:11
-	streamimgKhulnaSoftLogo(qw422016)
+	streamimgKhulnasoftLogo(qw422016)
 //line pkg/report/templates/namespace_report.qtpl:11
 	qw422016.N().S(`</div>
     <div class="row mt-4 text-center">
-      <h2 class="text-muted mx-auto">KhulnaSoft Starboard Namespace Security Report</h2>
+      <h2 class="text-muted mx-auto">Khulnasoft Starboard Namespace Security Report</h2>
     </div>
     <div class="row text-center">
       <h3 class="text-muted mx-auto">`)

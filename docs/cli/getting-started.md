@@ -134,7 +134,7 @@ starboard report deployment/nginx > nginx.deploy.html
 open nginx.deploy.html
 ```
 
-![KhulnaSoft Starboard Workload Security HTML Report](../images/html-report.png)
+![Khulnasoft Starboard Workload Security HTML Report](../images/html-report.png)
 
 ## What's Next?
 

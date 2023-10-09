@@ -1,2 +1,2 @@
-// Package api provides primitives for getting vulnerability reports via KhulnaSoft Enterprise API
+// Package api provides primitives for getting vulnerability reports via Khulnasoft Enterprise API
 package api

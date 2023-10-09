@@ -75,7 +75,7 @@ service:
     prometheus.io/path: /metrics
 
 starboard:
-  # vulnerabilityReportsPlugin the name of the plugin that generates vulnerability reports. Either `Vul` or `KhulnaSoft`.
+  # vulnerabilityReportsPlugin the name of the plugin that generates vulnerability reports. Either `Vul` or `Khulnasoft`.
   vulnerabilityReportsPlugin: "Vul"
   # configAuditReportsPlugin the name of the plugin that generates config audit reports. Either `Polaris` or `Conftest`.
   configAuditReportsPlugin: "Polaris"
@@ -185,7 +185,7 @@ vul:
   #
   # serverCustomHeaders: "foo=bar"
 
-  dbRepository: "ghcr.io/khulnasoft-lab/vul-db"
+  dbRepository: "ghcr.io/khulnasoft/vul-db"
 
 compliance:
   # failEntriesLimit the flag to limit the number of fail entries per control check in the cluster compliance detail report
@@ -425,14 +425,14 @@ conftest:
     #   kinds: ConfigMap
 
 khulnasoft:
-  # imageRef KhulnaSoft scanner image reference. The tag determines the version of the scanner binary executable and it must
-  # be compatible with version of KhulnaSoft server.
+  # imageRef Khulnasoft scanner image reference. The tag determines the version of the scanner binary executable and it must
+  # be compatible with version of Khulnasoft server.
   imageRef: docker.io/khulnasoft/scanner:5.3
-  # serverURL the endpoint URL of KhulnaSoft management console
+  # serverURL the endpoint URL of Khulnasoft management console
   serverURL:
-  # username the KhulnaSoft management console username
+  # username the Khulnasoft management console username
   username:
-  # password the KhulnaSoft management console password
+  # password the Khulnasoft management console password
   password:
 
 rbac:

@@ -1,16 +1,16 @@
-{% import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1" %}
+{% import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1" %}
 
 {% func (p *NodeReport) Title() %}
-KhulnaSoft Starboard Node Security Report - Node: {%s p.Node.Name %}
+Khulnasoft Starboard Node Security Report - Node: {%s p.Node.Name %}
 {% endfunc %}
 
 {% func (p *NodeReport) Body() %}
 <div class="container">
 
   <div class="col mt-5">
-    <div class="row text-center">{%= imgKhulnaSoftLogo() %}</div>
+    <div class="row text-center">{%= imgKhulnasoftLogo() %}</div>
     <div class="row mt-4 text-center">
-      <h2 class="text-muted mx-auto">KhulnaSoft Starboard Node Security Report</h2>
+      <h2 class="text-muted mx-auto">Khulnasoft Starboard Node Security Report</h2>
     </div>
     <div class="row text-center">
       <h3 class="text-muted mx-auto">{%s string(p.Node.Kind) %}: {%s p.Node.Name %}</h3>

@@ -30,11 +30,11 @@ func TestConfigData_GetVulnerabilityReportsScanner(t *testing.T) {
 			expectedScanner: "Vul",
 		},
 		{
-			name: "Should return KhulnaSoft",
+			name: "Should return Khulnasoft",
 			configData: starboard.ConfigData{
-				"vulnerabilityReports.scanner": "KhulnaSoft",
+				"vulnerabilityReports.scanner": "Khulnasoft",
 			},
-			expectedScanner: "KhulnaSoft",
+			expectedScanner: "Khulnasoft",
 		},
 		{
 			name:          "Should return error when value is not set",

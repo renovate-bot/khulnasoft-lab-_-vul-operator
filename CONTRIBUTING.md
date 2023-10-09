@@ -74,7 +74,7 @@ Each commit message doesn't have to follow conventions as long as it is clear an
 |--------------------------|------------------------------------------------|---------------------------------------------------------------|
 | `starboard`              | `docker.io/khulnasoft/starboard:dev`              | Starboard command-line interface                              |
 | `starboard-operator`     | `docker.io/khulnasoft/starboard-operator:dev`     | Starboard Operator                                            |
-| `starboard-scanner-khulnasoft` | `docker.io/khulnasoft/starboard-scanner-khulnasoft:dev` | Starboard plugin to integrate with KhulnaSoft vulnerability scanner |
+| `starboard-scanner-khulnasoft` | `docker.io/khulnasoft/starboard-scanner-khulnasoft:dev` | Starboard plugin to integrate with Khulnasoft vulnerability scanner |
 
 To build all Starboard binaries, run:
 

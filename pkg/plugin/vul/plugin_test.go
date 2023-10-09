@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/vul"
@@ -302,7 +302,7 @@ func TestConfig_IgnoreUnfixed(t *testing.T) {
 			name: "Should return true",
 			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"foo":                 "bar",
+					"foo":               "bar",
 					"vul.ignoreUnfixed": "true",
 				},
 			}},
@@ -312,7 +312,7 @@ func TestConfig_IgnoreUnfixed(t *testing.T) {
 			name: "Should return false when set it as false",
 			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"foo":                 "bar",
+					"foo":               "bar",
 					"vul.ignoreUnfixed": "false",
 				},
 			}},
@@ -346,7 +346,7 @@ func TestConfig_GetInsecureRegistries(t *testing.T) {
 			name: "Should return insecure registries in map",
 			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"foo":                                "bar",
+					"foo":                              "bar",
 					"vul.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
 					"vul.insecureRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
 				},
@@ -385,7 +385,7 @@ func TestConfig_GetNonSSLRegistries(t *testing.T) {
 			name: "Should return insecure registries in map",
 			configData: vul.Config{PluginConfig: starboard.PluginConfig{
 				Data: map[string]string{
-					"foo":                              "bar",
+					"foo":                            "bar",
 					"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
 					"vul.nonSslRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
 				},
@@ -3530,7 +3530,7 @@ var (
 		UpdateTimestamp: metav1.NewTime(fixedTime),
 		Scanner: v1alpha1.Scanner{
 			Name:    "Vul",
-			Vendor:  "KhulnaSoft Security",
+			Vendor:  "KhulnaSoft",
 			Version: "0.9.1",
 		},
 		Registry: v1alpha1.Registry{
@@ -3606,7 +3606,7 @@ func TestPlugin_ParseVulnerabilityReportData(t *testing.T) {
 				UpdateTimestamp: metav1.NewTime(fixedTime),
 				Scanner: v1alpha1.Scanner{
 					Name:    "Vul",
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Version: "0.9.1",
 				},
 				Registry: v1alpha1.Registry{

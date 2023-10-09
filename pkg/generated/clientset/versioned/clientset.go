@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	khulnasoft-labv1alpha1 "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/typed/khulnasoft-lab/v1alpha1"
+	khulnasoftv1alpha1 "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/typed/khulnasoft/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
@@ -14,19 +14,19 @@ import (
 
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
-	KhulnaSoftsecurityV1alpha1() khulnasoft-labv1alpha1.KhulnaSoftsecurityV1alpha1Interface
+	KhulnasoftV1alpha1() khulnasoftv1alpha1.KhulnasoftV1alpha1Interface
 }
 
 // Clientset contains the clients for groups. Each group has exactly one
 // version included in a Clientset.
 type Clientset struct {
 	*discovery.DiscoveryClient
-	khulnasoft-labV1alpha1 *khulnasoft-labv1alpha1.KhulnaSoftsecurityV1alpha1Client
+	khulnasoftV1alpha1 *khulnasoftv1alpha1.KhulnasoftV1alpha1Client
 }
 
-// KhulnaSoftsecurityV1alpha1 retrieves the KhulnaSoftsecurityV1alpha1Client
-func (c *Clientset) KhulnaSoftsecurityV1alpha1() khulnasoft-labv1alpha1.KhulnaSoftsecurityV1alpha1Interface {
-	return c.khulnasoft-labV1alpha1
+// KhulnasoftV1alpha1 retrieves the KhulnasoftV1alpha1Client
+func (c *Clientset) KhulnasoftV1alpha1() khulnasoftv1alpha1.KhulnasoftV1alpha1Interface {
+	return c.khulnasoftV1alpha1
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -69,7 +69,7 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 
 	var cs Clientset
 	var err error
-	cs.khulnasoft-labV1alpha1, err = khulnasoft-labv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	cs.khulnasoftV1alpha1, err = khulnasoftv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 // New creates a new Clientset for the given RESTClient.
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
-	cs.khulnasoft-labV1alpha1 = khulnasoft-labv1alpha1.New(c)
+	cs.khulnasoftV1alpha1 = khulnasoftv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

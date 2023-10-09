@@ -39,7 +39,7 @@ configure it to watch the `default` namespaces:
 4. (Optional) Configure Starboard by creating the `starboard` ConfigMap and the `starboard` secret in
    the `starboard-system` namespace. For example, you can use Vul
    in [ClientServer](./../../vulnerability-scanning/vul.md#clientserver) mode or
-   [KhulnaSoft Enterprise](./../../vulnerability-scanning/khulnasoft-enterprise.md) as an active vulnerability scanner.
+   [Khulnasoft Enterprise](./../../vulnerability-scanning/khulnasoft-enterprise.md) as an active vulnerability scanner.
    If you skip this step, the operator will ensure default [Settings](./../../settings.md) on startup:
    ```
    kubectl apply -f https://raw.githubusercontent.com/khulnasoft-lab/starboard/{{ git.tag }}/deploy/static/03-starboard-operator.config.yaml

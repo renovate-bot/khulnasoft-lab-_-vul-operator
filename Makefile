@@ -18,8 +18,9 @@ SOURCES := $(shell find . -name '*.go')
 IMAGE_TAG := dev
 STARBOARD_CLI_IMAGE := khulnasoft/starboard:$(IMAGE_TAG)
 STARBOARD_OPERATOR_IMAGE := khulnasoft/starboard-operator:$(IMAGE_TAG)
-STARBOARD_SCANNER_AQUA_IMAGE := khulnasoft/starboard-scanner-khulnasoft:$(IMAGE_TAG)
+STARBOARD_SCANNER_KHULNASOFT_IMAGE := khulnasoft/starboard-scanner-khulnasoft:$(IMAGE_TAG)
 STARBOARD_OPERATOR_IMAGE_UBI8 := khulnasoft/starboard-operator:$(IMAGE_TAG)-ubi8
+STARBOARD_OPERATOR_IMAGE_UBI8_FIPS := khulnasoft/starboard-operator:$(IMAGE_TAG)-ubi8-fips
 
 MKDOCS_IMAGE := khulnasoft/mkdocs-material:starboard
 MKDOCS_PORT := 8000
@@ -37,6 +38,10 @@ build-starboard-cli: $(SOURCES)
 ## Builds the starboard-operator binary
 build-starboard-operator: $(SOURCES)
 	CGO_ENABLED=0 GOOS=linux go build -o ./bin/starboard-operator ./cmd/starboard-operator/main.go
+
+## Builds the starboard-operator binary
+build-starboard-operator-fips: $(SOURCES)
+	CGO_ENABLED=0 GOOS=linux GOEXPERIMENT=boringcrypto go build -tags fipsonly -o ./bin/starboard-operator-fips ./cmd/starboard-operator/main.go
 
 ## Builds the scanner-khulnasoft binary
 build-starboard-scanner-khulnasoft: $(SOURCES)
@@ -139,14 +144,18 @@ docker-build-starboard-cli: build-starboard-cli
 ## Builds Docker image for Starboard operator
 docker-build-starboard-operator: build-starboard-operator
 	$(DOCKER) build --no-cache -t $(STARBOARD_OPERATOR_IMAGE) -f build/starboard-operator/Dockerfile bin
-	
+
+## Builds Docker image for Starboard operator ubi8
+docker-build-starboard-operator-fips: build-starboard-operator-fips
+	$(DOCKER) build --no-cache -f build/starboard-operator/Dockerfile.fips.ubi8 -t $(STARBOARD_OPERATOR_IMAGE_UBI8_FIPS) bin
+
 ## Builds Docker image for Starboard operator ubi8
 docker-build-starboard-operator-ubi8: build-starboard-operator
 	$(DOCKER) build --no-cache -f build/starboard-operator/Dockerfile.ubi8 -t $(STARBOARD_OPERATOR_IMAGE_UBI8) bin
 
-## Builds Docker image for KhulnaSoft scanner
+## Builds Docker image for Khulnasoft scanner
 docker-build-starboard-scanner-khulnasoft: build-starboard-scanner-khulnasoft
-	$(DOCKER) build --no-cache -t $(STARBOARD_SCANNER_AQUA_IMAGE) -f build/scanner-khulnasoft/Dockerfile bin
+	$(DOCKER) build --no-cache -t $(STARBOARD_SCANNER_KHULNASOFT_IMAGE) -f build/scanner-khulnasoft/Dockerfile bin
 
 kind-load-images: \
 	docker-build-starboard-operator \

@@ -1,6 +1,6 @@
 ---
 # This is a manually triggered workflow to package and upload the Helm chart from the
-# main branch to KhulnaSoft Security repository at https://github.com/khulnasoft-lab/helm-charts.
+# main branch to KhulnaSoft repository at https://github.com/khulnasoft-lab/helm-charts.
 name: Publish Helm chart
 
 on:

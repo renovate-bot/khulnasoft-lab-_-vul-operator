@@ -25,7 +25,7 @@ report:
   updateTimestamp: '2021-05-20T11:53:58Z'
   scanner:
     name: kube-bench
-    vendor: KhulnaSoft Security
+    vendor: KhulnaSoft
     version: 0.5.0
   sections:
     - id: '1'

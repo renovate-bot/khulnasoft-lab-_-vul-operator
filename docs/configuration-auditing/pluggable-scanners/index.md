@@ -20,7 +20,7 @@ These are currently integrated configuration checkers:
 ## What's Next?
 
 * See the explanation and demo of configuration auditing with Polaris on the
-  [Automating Configuration Auditing with Starboard Operator By KhulnaSoft][blog] blog.
+  [Automating Configuration Auditing with Starboard Operator By Khulnasoft][blog] blog.
 
 [Built-in Policies]: ./../built-in-policies.md
 [plugin-interface]: https://pkg.go.dev/github.com/khulnasoft-lab/starboard@{{ git.tag }}/pkg/configauditreport#Plugin

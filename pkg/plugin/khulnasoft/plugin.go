@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/docker"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
@@ -20,15 +20,15 @@ import (
 
 const (
 	// Plugin the name of this plugin.
-	khulnasoftPlugin = "KhulnaSoft"
+	khulnasoftPlugin = "Khulnasoft"
 
-	keyKhulnaSoftScannerImage   = "khulnasoft.imageRef"
-	keyStarboardKhulnaSoftImage = "khulnasoft.imageRefStarboardKhulnaSoftScanner"
-	keyKhulnaSoftCommand        = "khulnasoft.command"
-	keyKhulnaSoftCspHost        = "khulnasoft.serverURL"
-	keyKhulnaSoftUsername       = "khulnasoft.username"
-	keyKhulnaSoftPassword       = "khulnasoft.password"
-	keyKhulnaSoftRegistry       = "khulnasoft.registry"
+	keyKhulnasoftScannerImage   = "khulnasoft.imageRef"
+	keyStarboardKhulnasoftImage = "khulnasoft.imageRefStarboardKhulnasoftScanner"
+	keyKhulnasoftCommand        = "khulnasoft.command"
+	keyKhulnasoftCspHost        = "khulnasoft.serverURL"
+	keyKhulnasoftUsername       = "khulnasoft.username"
+	keyKhulnasoftPassword       = "khulnasoft.password"
+	keyKhulnasoftRegistry       = "khulnasoft.registry"
 
 	keyResourcesRequestsCPU    = "khulnasoft.resources.requests.cpu"
 	keyResourcesRequestsMemory = "khulnasoft.resources.requests.memory"
@@ -52,7 +52,7 @@ type Config struct {
 func (c Config) GetCommand() (Command, error) {
 	var ok bool
 	var value string
-	if value, ok = c.Data[keyKhulnaSoftCommand]; !ok {
+	if value, ok = c.Data[keyKhulnasoftCommand]; !ok {
 		// for backward compatibility, fallback to ImageScan
 		return Image, nil
 	}
@@ -63,14 +63,14 @@ func (c Config) GetCommand() (Command, error) {
 		return Filesystem, nil
 	}
 	return "", fmt.Errorf("invalid value (%s) of %s; allowed values (%s, %s)",
-		value, keyKhulnaSoftCommand, Image, Filesystem)
+		value, keyKhulnasoftCommand, Image, Filesystem)
 }
 
-func (c Config) GetStarboardKhulnaSoftScannerImage() (string, error) {
+func (c Config) GetStarboardKhulnasoftScannerImage() (string, error) {
 	var ok bool
 	var value string
-	if value, ok = c.Data[keyStarboardKhulnaSoftImage]; !ok {
-		return "", fmt.Errorf("property %s not set", keyStarboardKhulnaSoftImage)
+	if value, ok = c.Data[keyStarboardKhulnasoftImage]; !ok {
+		return "", fmt.Errorf("property %s not set", keyStarboardKhulnasoftImage)
 	}
 	return value, nil
 }
@@ -122,7 +122,7 @@ type plugin struct {
 }
 
 // NewPlugin constructs a new vulnerabilityreport.Plugin, which is using
-// the KhulnaSoft Enterprise to scan container images of Kubernetes workloads.
+// the Khulnasoft Enterprise to scan container images of Kubernetes workloads.
 func NewPlugin(
 	idGenerator ext.IDGenerator,
 	buildInfo starboard.BuildInfo,
@@ -250,19 +250,19 @@ func (s *plugin) newScanJobContainer(ctx starboard.PluginContext, config Config,
 		Command: []string{
 			"/bin/sh",
 			"-c",
-			fmt.Sprintf("/usr/local/bin/starboard-scanner-khulnasoft --version $(AQUA_VERSION) "+
-				"--host $(AQUA_CSP_HOST) --user $(AQUA_CSP_USERNAME) --password $(AQUA_CSP_PASSWORD) %s 2> %s",
+			fmt.Sprintf("/usr/local/bin/starboard-scanner-khulnasoft --version $(KHULNASOFT_VERSION) "+
+				"--host $(KHULNASOFT_CSP_HOST) --user $(KHULNASOFT_CSP_USERNAME) --password $(KHULNASOFT_CSP_PASSWORD) %s 2> %s",
 				podContainer.Image,
 				corev1.TerminationMessagePathDefault),
 		},
 		Env: []corev1.EnvVar{
 			{
-				Name:  "AQUA_VERSION",
+				Name:  "KHULNASOFT_VERSION",
 				Value: version,
 			},
-			constructEnvVarSourceFromConfigMap("AQUA_CSP_HOST", pluginConfigName, keyKhulnaSoftCspHost),
-			constructEnvVarSourceFromConfigMap("AQUA_CSP_USERNAME", pluginConfigName, keyKhulnaSoftUsername),
-			constructEnvVarSourceFromConfigMap("AQUA_CSP_PASSWORD", pluginConfigName, keyKhulnaSoftPassword),
+			constructEnvVarSourceFromConfigMap("KHULNASOFT_CSP_HOST", pluginConfigName, keyKhulnasoftCspHost),
+			constructEnvVarSourceFromConfigMap("KHULNASOFT_CSP_USERNAME", pluginConfigName, keyKhulnasoftUsername),
+			constructEnvVarSourceFromConfigMap("KHULNASOFT_CSP_PASSWORD", pluginConfigName, keyKhulnasoftPassword),
 		},
 		Resources: requirements,
 		VolumeMounts: []corev1.VolumeMount{
@@ -295,7 +295,7 @@ func (s *plugin) getPodSpecForFileSystemCommand(ctx starboard.PluginContext, con
 	if err != nil {
 		return corev1.PodSpec{}, nil, err
 	}
-	starboardKhulnaSoftImage, err := config.GetStarboardKhulnaSoftScannerImage()
+	starboardKhulnasoftImage, err := config.GetStarboardKhulnasoftScannerImage()
 	if err != nil {
 		return corev1.PodSpec{}, nil, err
 	}
@@ -348,7 +348,7 @@ func (s *plugin) getPodSpecForFileSystemCommand(ctx starboard.PluginContext, con
 				},
 				{
 					Name:            s.idGenerator.GenerateID(),
-					Image:           starboardKhulnaSoftImage,
+					Image:           starboardKhulnasoftImage,
 					ImagePullPolicy: corev1.PullIfNotPresent,
 					Command: []string{
 						"cp",
@@ -390,17 +390,17 @@ func (s *plugin) newScanJobContainerFSCommand(config Config, podContainer corev1
 		},
 		Args: []string{
 			"--version",
-			"$(AQUA_VERSION)",
+			"$(KHULNASOFT_VERSION)",
 			"--host",
-			"$(AQUA_CSP_HOST)",
+			"$(KHULNASOFT_CSP_HOST)",
 			"--user",
-			"$(AQUA_CSP_USERNAME)",
+			"$(KHULNASOFT_CSP_USERNAME)",
 			"--password",
-			"$(AQUA_CSP_PASSWORD)",
+			"$(KHULNASOFT_CSP_PASSWORD)",
 			"--command",
 			"filesystem",
 			"--registry",
-			"$(AQUA_CSP_REGISTRY)",
+			"$(KHULNASOFT_CSP_REGISTRY)",
 			podContainer.Image,
 		},
 		Env:       envVars,
@@ -426,7 +426,7 @@ func (s *plugin) getImageRef(ctx starboard.PluginContext) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return config.GetRequiredData(keyKhulnaSoftScannerImage)
+	return config.GetRequiredData(keyKhulnasoftScannerImage)
 }
 
 func (s *plugin) newConfigFrom(ctx starboard.PluginContext) (Config, error) {
@@ -448,13 +448,13 @@ func (s *plugin) getEnvFromConfig(ctx starboard.PluginContext, secretName string
 	}
 	env := []corev1.EnvVar{
 		{
-			Name:  "AQUA_VERSION",
+			Name:  "KHULNASOFT_VERSION",
 			Value: version,
 		},
-		constructEnvVarSourceFromSecret("AQUA_CSP_HOST", secretName, keyKhulnaSoftCspHost),
-		constructEnvVarSourceFromSecret("AQUA_CSP_USERNAME", secretName, keyKhulnaSoftUsername),
-		constructEnvVarSourceFromSecret("AQUA_CSP_PASSWORD", secretName, keyKhulnaSoftPassword),
-		constructEnvVarSourceFromSecret("AQUA_CSP_REGISTRY", secretName, keyKhulnaSoftRegistry),
+		constructEnvVarSourceFromSecret("KHULNASOFT_CSP_HOST", secretName, keyKhulnasoftCspHost),
+		constructEnvVarSourceFromSecret("KHULNASOFT_CSP_USERNAME", secretName, keyKhulnasoftUsername),
+		constructEnvVarSourceFromSecret("KHULNASOFT_CSP_PASSWORD", secretName, keyKhulnasoftPassword),
+		constructEnvVarSourceFromSecret("KHULNASOFT_CSP_REGISTRY", secretName, keyKhulnasoftRegistry),
 	}
 	return env, nil
 }

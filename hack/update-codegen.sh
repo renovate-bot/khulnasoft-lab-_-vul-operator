@@ -7,6 +7,6 @@ set -o pipefail
 bash vendor/k8s.io/code-generator/generate-groups.sh all \
   github.com/khulnasoft-lab/starboard/pkg/generated \
   github.com/khulnasoft-lab/starboard/pkg/apis \
-  khulnasoft-lab:v1alpha1 \
+  khulnasoft:v1alpha1 \
   --output-base "${GOPATH}/src" \
   --go-header-file "hack/boilerplate.go.txt"

@@ -3,7 +3,7 @@
 SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 DEFSEC_DIR=$TMPDIR/defsec
 
-git clone --branch v0.25.0 git@github.com:khulnasoft-lab/defsec.git $DEFSEC_DIR
+git clone --branch v0.25.0 git@github.com:khulnasoft/defsec.git $DEFSEC_DIR
 
 kubectl create configmap starboard-policies-config --namespace starboard-system \
   --from-file=library.kubernetes.rego=$DEFSEC_DIR/rules/kubernetes/lib/kubernetes.rego \

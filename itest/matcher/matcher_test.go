@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/khulnasoft-lab/starboard/itest/matcher"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -56,7 +56,7 @@ func TestVulnerabilityReportMatcher(t *testing.T) {
 			Report: v1alpha1.VulnerabilityReportData{
 				Scanner: v1alpha1.Scanner{
 					Name:    "Vul",
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Version: "0.25.2",
 				},
 				Vulnerabilities: []v1alpha1.Vulnerability{},
@@ -108,7 +108,7 @@ func TestConfigAuditReportMatcher(t *testing.T) {
 			Report: v1alpha1.ConfigAuditReportData{
 				Scanner: v1alpha1.Scanner{
 					Name:    "Starboard",
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Version: "dev",
 				},
 			},

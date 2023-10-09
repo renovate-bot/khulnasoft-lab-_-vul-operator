@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/operator/etc"
@@ -321,7 +321,7 @@ func (r *ResourceController) evaluate(ctx context.Context, policies *policy.Poli
 	return v1alpha1.ConfigAuditReportData{
 		Scanner: v1alpha1.Scanner{
 			Name:    "Starboard",
-			Vendor:  "KhulnaSoft Security",
+			Vendor:  "KhulnaSoft",
 			Version: r.BuildInfo.Version,
 		},
 		Summary: v1alpha1.ConfigAuditSummaryFromChecks(checks),

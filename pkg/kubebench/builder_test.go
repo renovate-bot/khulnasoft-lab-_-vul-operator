@@ -3,7 +3,7 @@ package kubebench_test
 import (
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/kubebench"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	"github.com/onsi/gomega"

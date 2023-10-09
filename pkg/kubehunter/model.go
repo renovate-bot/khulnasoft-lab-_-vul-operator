@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -39,7 +39,7 @@ func OutputFrom(config Config, reader io.Reader) (v1alpha1.KubeHunterReportData,
 	report := v1alpha1.KubeHunterReportData{
 		Scanner: v1alpha1.Scanner{
 			Name:    "kube-hunter",
-			Vendor:  "KhulnaSoft Security",
+			Vendor:  "KhulnaSoft",
 			Version: version,
 		},
 	}

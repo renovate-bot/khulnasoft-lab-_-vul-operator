@@ -68,9 +68,9 @@ type Vulnerability struct {
 	NVDSeverityV3 string  `json:"nvd_severity_v3"`
 	NVDScoreV3    float32 `json:"nvd_score_v3"`
 
-	KhulnaSoftSeverity      string  `json:"khulnasoft_severity"`
-	KhulnaSoftScore         float32 `json:"khulnasoft_score"`
-	KhulnaSoftScoringSystem string  `json:"khulnasoft_scoring_system"`
+	KhulnasoftSeverity      string  `json:"khulnasoft_severity"`
+	KhulnasoftScore         float32 `json:"khulnasoft_score"`
+	KhulnasoftScoringSystem string  `json:"khulnasoft_scoring_system"`
 }
 
 type VulnerabilitySummary struct {

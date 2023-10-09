@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,7 +30,7 @@ func (w *writer) Write(ctx context.Context, report v1alpha1.KubeHunterReportData
 	if strings.TrimSpace(cluster) == "" {
 		return errors.New("cluster name must not be blank")
 	}
-	_, err := w.clientset.KhulnaSoftsecurityV1alpha1().KubeHunterReports().Create(ctx, &v1alpha1.KubeHunterReport{
+	_, err := w.clientset.KhulnasoftV1alpha1().KubeHunterReports().Create(ctx, &v1alpha1.KubeHunterReport{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: cluster,
 			Labels: map[string]string{
@@ -41,13 +41,13 @@ func (w *writer) Write(ctx context.Context, report v1alpha1.KubeHunterReportData
 		Report: report,
 	}, metav1.CreateOptions{})
 	if err != nil && apierrors.IsAlreadyExists(err) {
-		found, err := w.clientset.KhulnaSoftsecurityV1alpha1().KubeHunterReports().Get(ctx, cluster, metav1.GetOptions{})
+		found, err := w.clientset.KhulnasoftV1alpha1().KubeHunterReports().Get(ctx, cluster, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
 		deepCopy := found.DeepCopy()
 		deepCopy.Report = report
-		_, err = w.clientset.KhulnaSoftsecurityV1alpha1().KubeHunterReports().Update(ctx, deepCopy, metav1.UpdateOptions{})
+		_, err = w.clientset.KhulnasoftV1alpha1().KubeHunterReports().Update(ctx, deepCopy, metav1.UpdateOptions{})
 		return err
 	}
 	return err

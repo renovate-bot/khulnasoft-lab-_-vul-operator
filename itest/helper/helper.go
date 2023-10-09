@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/caarlos0/env/v6"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/docker"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/kubebench"
@@ -248,7 +248,7 @@ func (b *DeploymentBuilder) Build() *appsv1.Deployment {
 var (
 	vulScanner = v1alpha1.Scanner{
 		Name:    "Vul",
-		Vendor:  "KhulnaSoft Security",
+		Vendor:  "KhulnaSoft",
 		Version: "0.16.0",
 	}
 )

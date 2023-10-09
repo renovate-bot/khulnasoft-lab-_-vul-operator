@@ -1,7 +1,7 @@
 {
     "scanner": {
         "name": "kube-bench",
-        "vendor": "KhulnaSoft Security",
+        "vendor": "KhulnaSoft",
         "version": "v0.6.9"
     },
     "summary": {

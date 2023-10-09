@@ -7,7 +7,7 @@ import (
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/conftest"
-	"github.com/khulnasoft-lab/starboard/pkg/plugin/khulnasoft"
+	khulnasoft "github.com/khulnasoft-lab/starboard/pkg/plugin/khulnasoft"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/polaris"
 	"github.com/khulnasoft-lab/starboard/pkg/plugin/vul"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
@@ -17,7 +17,7 @@ import (
 
 const (
 	Vul        starboard.Scanner = "Vul"
-	KhulnaSoft starboard.Scanner = "KhulnaSoft"
+	Khulnasoft starboard.Scanner = "Khulnasoft"
 	Polaris    starboard.Scanner = "Polaris"
 	Conftest   starboard.Scanner = "Conftest"
 )
@@ -68,7 +68,7 @@ func (r *Resolver) WithClient(client client.Client) *Resolver {
 // GetVulnerabilityPlugin is a factory method that instantiates the vulnerabilityreport.Plugin.
 //
 // Starboard currently supports Vul scanner in Standalone and ClientServer
-// mode, and KhulnaSoft Enterprise scanner.
+// mode, and Khulnasoft Enterprise scanner.
 //
 // You could add your own scanner by implementing the vulnerabilityreport.Plugin interface.
 func (r *Resolver) GetVulnerabilityPlugin() (vulnerabilityreport.Plugin, starboard.PluginContext, error) {
@@ -88,7 +88,7 @@ func (r *Resolver) GetVulnerabilityPlugin() (vulnerabilityreport.Plugin, starboa
 	switch scanner {
 	case Vul:
 		return vul.NewPlugin(ext.NewSystemClock(), ext.NewGoogleUUIDGenerator(), r.objectResolver), pluginContext, nil
-	case KhulnaSoft:
+	case Khulnasoft:
 		return khulnasoft.NewPlugin(ext.NewGoogleUUIDGenerator(), r.buildInfo), pluginContext, nil
 	}
 	return nil, nil, fmt.Errorf("unsupported vulnerability scanner plugin: %s", scanner)

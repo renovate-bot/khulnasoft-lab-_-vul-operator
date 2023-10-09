@@ -3,13 +3,14 @@ package configauditreport_test
 import (
 	"encoding/json"
 	"fmt"
+
 	. "github.com/onsi/gomega"
 
 	"io"
 	"testing"
 	"time"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/configauditreport"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"

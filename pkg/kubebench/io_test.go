@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/kubebench"
 	"github.com/khulnasoft-lab/starboard/pkg/starboard"
@@ -31,7 +31,7 @@ func TestReadWriter(t *testing.T) {
 			},
 			Report: v1alpha1.CISKubeBenchReportData{
 				Scanner: v1alpha1.Scanner{
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Name:    "kube-bench",
 					Version: "0.5.1",
 				},
@@ -64,7 +64,7 @@ func TestReadWriter(t *testing.T) {
 			},
 			Report: v1alpha1.CISKubeBenchReportData{
 				Scanner: v1alpha1.Scanner{
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Name:    "kube-bench",
 					Version: "0.5.1",
 				},
@@ -92,7 +92,7 @@ func TestReadWriter(t *testing.T) {
 				},
 				Report: v1alpha1.CISKubeBenchReportData{
 					Scanner: v1alpha1.Scanner{
-						Vendor:  "KhulnaSoft Security",
+						Vendor:  "KhulnaSoft",
 						Name:    "kube-bench",
 						Version: "0.5.1",
 					},
@@ -116,7 +116,7 @@ func TestReadWriter(t *testing.T) {
 			},
 			Report: v1alpha1.CISKubeBenchReportData{
 				Scanner: v1alpha1.Scanner{
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Name:    "kube-bench",
 					Version: "0.5.1",
 				},
@@ -149,7 +149,7 @@ func TestReadWriter(t *testing.T) {
 			},
 			Report: v1alpha1.CISKubeBenchReportData{
 				Scanner: v1alpha1.Scanner{
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Name:    "kube-bench",
 					Version: "0.5.1",
 				},
@@ -177,7 +177,7 @@ func TestReadWriter(t *testing.T) {
 				},
 				Report: v1alpha1.CISKubeBenchReportData{
 					Scanner: v1alpha1.Scanner{
-						Vendor:  "KhulnaSoft Security",
+						Vendor:  "KhulnaSoft",
 						Name:    "kube-bench",
 						Version: "0.5.1",
 					},
@@ -199,7 +199,7 @@ func TestReadWriter(t *testing.T) {
 				},
 				Report: v1alpha1.CISKubeBenchReportData{
 					Scanner: v1alpha1.Scanner{
-						Vendor:  "KhulnaSoft Security",
+						Vendor:  "KhulnaSoft",
 						Name:    "kube-bench",
 						Version: "0.5.1",
 					},
@@ -232,7 +232,7 @@ func TestReadWriter(t *testing.T) {
 			},
 			Report: v1alpha1.CISKubeBenchReportData{
 				Scanner: v1alpha1.Scanner{
-					Vendor:  "KhulnaSoft Security",
+					Vendor:  "KhulnaSoft",
 					Name:    "kube-bench",
 					Version: "0.5.1",
 				},

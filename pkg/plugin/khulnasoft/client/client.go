@@ -38,7 +38,7 @@ func (c *client) newGetRequest(url string) (*http.Request, error) {
 	return req, nil
 }
 
-// KhulnaSoft api has custom auth header, auth header can be get using /api endpoint
+// Khulnasoft api has custom auth header, auth header can be get using /api endpoint
 func (c *client) getAuthHeader() error {
 	url := fmt.Sprintf("%s/api", c.baseURL)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -65,7 +65,7 @@ func (c *client) getAuthHeader() error {
 	return nil
 }
 
-// Clientset defines methods of the KhulnaSoft API client.
+// Clientset defines methods of the Khulnasoft API client.
 type Clientset interface {
 	Registries() RegistriesInterface
 	Images() ImagesInterface
@@ -79,7 +79,7 @@ type RegistriesInterface interface {
 	List() ([]RegistryResponse, error)
 }
 
-// Client represents KhulnaSoft API client.
+// Client represents Khulnasoft API client.
 //
 // Currently it is not possible to generate API clientset from Swagger / Open API specs,
 // but if that was possible this implementations would be deprecated.

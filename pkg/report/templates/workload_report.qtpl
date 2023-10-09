@@ -1,7 +1,7 @@
-{% import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1" %}
+{% import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1" %}
 
 {% func (p *WorkloadReport) Title() %}
-KhulnaSoft Starboard Workload Security Report - {%s p.Workload.Namespace %}/{%v p.Workload.Kind %}/{%s p.Workload.Name %}
+Khulnasoft Starboard Workload Security Report - {%s p.Workload.Namespace %}/{%v p.Workload.Kind %}/{%s p.Workload.Name %}
 {% endfunc %}
 
 TODO Check if we need that summary logic. If yes move this logic out of HTML templating.
@@ -33,10 +33,10 @@ func (p *WorkloadReport) GetMergedVulnsSummary() (v1alpha1.VulnerabilitySummary)
   <div class="container border-right border-left" style="height: 100%; overflow: scroll;">
     <div class="col mt-5">
       <div class="row text-center">
-        {%= imgKhulnaSoftLogo() %}
+        {%= imgKhulnasoftLogo() %}
       </div>
       <div class="row mt-4 text-center">
-        <h2 class="text-muted mx-auto">KhulnaSoft Starboard Workload Security Report</h2>
+        <h2 class="text-muted mx-auto">Khulnasoft Starboard Workload Security Report</h2>
       </div>
       <div class="row text-center">
         <h3 class="text-muted mx-auto">Workload: {%v p.Workload.Kind %}/{%s p.Workload.Name %}</h3>

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/ext"
 	"github.com/khulnasoft-lab/starboard/pkg/kube"
 	"github.com/khulnasoft-lab/starboard/pkg/runner"
@@ -322,7 +322,7 @@ func (k *kubeBenchPlugin) ParseCISKubeBenchReportData(logsStream io.ReadCloser) 
 	return v1alpha1.CISKubeBenchReportData{
 		Scanner: v1alpha1.Scanner{
 			Name:    "kube-bench",
-			Vendor:  "KhulnaSoft Security",
+			Vendor:  "KhulnaSoft",
 			Version: version,
 		},
 		Summary:         k.summary(output.Controls),

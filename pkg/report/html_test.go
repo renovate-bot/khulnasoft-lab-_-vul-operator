@@ -3,7 +3,7 @@ package report
 import (
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/starboard/pkg/report/templates"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/utils/pointer"

@@ -5,7 +5,7 @@
 package templates
 
 //line pkg/report/templates/workload_report.qtpl:1
-import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft-lab/v1alpha1"
+import "github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
 
 //line pkg/report/templates/workload_report.qtpl:3
 import (
@@ -24,7 +24,7 @@ var (
 func (p *WorkloadReport) StreamTitle(qw422016 *qt422016.Writer) {
 //line pkg/report/templates/workload_report.qtpl:3
 	qw422016.N().S(`
-KhulnaSoft Starboard Workload Security Report - `)
+Khulnasoft Starboard Workload Security Report - `)
 //line pkg/report/templates/workload_report.qtpl:4
 	qw422016.E().S(p.Workload.Namespace)
 //line pkg/report/templates/workload_report.qtpl:4
@@ -101,12 +101,12 @@ func (p *WorkloadReport) StreamBody(qw422016 *qt422016.Writer) {
       <div class="row text-center">
         `)
 //line pkg/report/templates/workload_report.qtpl:36
-	streamimgKhulnaSoftLogo(qw422016)
+	streamimgKhulnasoftLogo(qw422016)
 //line pkg/report/templates/workload_report.qtpl:36
 	qw422016.N().S(`
       </div>
       <div class="row mt-4 text-center">
-        <h2 class="text-muted mx-auto">KhulnaSoft Starboard Workload Security Report</h2>
+        <h2 class="text-muted mx-auto">Khulnasoft Starboard Workload Security Report</h2>
       </div>
       <div class="row text-center">
         <h3 class="text-muted mx-auto">Workload: `)

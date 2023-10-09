@@ -1,6 +1,6 @@
 # Welcome to {{ config.site_name }}
 
-There are lots of security tools in the cloud native world, created by KhulnaSoft and by others, for identifying and informing
+There are lots of security tools in the cloud native world, created by Khulnasoft and by others, for identifying and informing
 users about security issues in Kubernetes workloads and infrastructure components. However powerful and useful they
 might be, they tend to sit alongside Kubernetes, with each new product requiring users to learn a separate set of
 commands and installation steps in order to operate them and find critical security information.

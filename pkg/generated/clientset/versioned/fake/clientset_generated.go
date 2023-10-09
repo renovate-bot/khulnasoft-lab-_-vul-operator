@@ -4,8 +4,8 @@ package fake
 
 import (
 	clientset "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned"
-	khulnasoft-labv1alpha1 "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/typed/khulnasoft-lab/v1alpha1"
-	fakekhulnasoft-labv1alpha1 "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/typed/khulnasoft-lab/v1alpha1/fake"
+	khulnasoftv1alpha1 "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/typed/khulnasoft/v1alpha1"
+	fakekhulnasoftv1alpha1 "github.com/khulnasoft-lab/starboard/pkg/generated/clientset/versioned/typed/khulnasoft/v1alpha1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
@@ -63,7 +63,7 @@ var (
 	_ testing.FakeClient  = &Clientset{}
 )
 
-// KhulnaSoftsecurityV1alpha1 retrieves the KhulnaSoftsecurityV1alpha1Client
-func (c *Clientset) KhulnaSoftsecurityV1alpha1() khulnasoft-labv1alpha1.KhulnaSoftsecurityV1alpha1Interface {
-	return &fakekhulnasoft-labv1alpha1.FakeKhulnaSoftsecurityV1alpha1{Fake: &c.Fake}
+// KhulnasoftV1alpha1 retrieves the KhulnasoftV1alpha1Client
+func (c *Clientset) KhulnasoftV1alpha1() khulnasoftv1alpha1.KhulnasoftV1alpha1Interface {
+	return &fakekhulnasoftv1alpha1.FakeKhulnasoftV1alpha1{Fake: &c.Fake}
 }

@@ -9,6 +9,9 @@ we encourage you to contribute to [Vul-Operator](https://github.com/khulnasoft-l
 
 for more info and [discussions](https://github.com/khulnasoft-lab/starboard/discussions/1173)
 
+Checkout the latest : [What's next for Vul Q&A](https://www.youtube.com/watch?v=u3cixRRJyYg)
+
+![Starboard logo](docs/images/starboard-logo.png)
 
 > Kubernetes-native security toolkit.
 
@@ -24,7 +27,7 @@ for more info and [discussions](https://github.com/khulnasoft-lab/starboard/disc
 
 # Introduction
 
-There are lots of security tools in the cloud native world, created by KhulnaSoft and by others, for identifying and informing
+There are lots of security tools in the cloud native world, created by Khulnasoft and by others, for identifying and informing
 users about security issues in Kubernetes workloads and infrastructure components. However powerful and useful they
 might be, they tend to sit alongside Kubernetes, with each new product requiring users to learn a separate set of
 commands and installation steps in order to operate them and find critical security information.
@@ -86,7 +89,7 @@ Kubernetes-native ways.
 * See [Roadmap] for tentative features in a 1.0.0 release.
 
 ---
-Starboard is an [KhulnaSoft Security](https://khulnasoft.com) open source project.  
+Starboard is an [KhulnaSoft](https://khulnasoft.com) open source project.  
 Learn about our [Open Source Work and Portfolio].  
 Join the community, and talk to us about any matter in [GitHub Discussions] or [Slack].
 
