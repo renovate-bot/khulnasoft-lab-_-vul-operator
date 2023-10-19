@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/compliance"
 	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport"
 	ca "github.com/khulnasoft-lab/vul-operator/pkg/configauditreport/controller"

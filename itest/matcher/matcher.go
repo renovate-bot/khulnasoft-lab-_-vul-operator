@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
 	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	"github.com/onsi/gomega/types"

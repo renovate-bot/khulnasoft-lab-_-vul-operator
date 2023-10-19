@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
 	"github.com/khulnasoft-lab/vul-operator/pkg/operator"
 	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"

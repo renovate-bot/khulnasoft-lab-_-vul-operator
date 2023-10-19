@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )

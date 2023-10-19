@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/khulnasoft-lab/vul-operator/itest/matcher"
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"

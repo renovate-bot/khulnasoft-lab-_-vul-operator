@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/khulnasoft-lab/defsec/pkg/scan"
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/plugins/vul"
 	"github.com/khulnasoft-lab/vul-operator/pkg/policy"
 	"github.com/khulnasoft-lab/vul-operator/pkg/utils"

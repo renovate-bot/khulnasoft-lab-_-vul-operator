@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"
 	"github.com/khulnasoft-lab/vul-operator/pkg/operator/predicate"
 	"github.com/go-logr/logr"

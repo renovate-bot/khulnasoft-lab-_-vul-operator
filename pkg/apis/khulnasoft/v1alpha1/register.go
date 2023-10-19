@@ -1,7 +1,7 @@
 package v1alpha1
 
 import (
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft"
 	meta "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"

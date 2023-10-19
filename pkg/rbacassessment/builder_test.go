@@ -3,7 +3,7 @@ package rbacassessment_test
 import (
 	"testing"
 
-	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft/v1alpha1"
 	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport"
 	"github.com/khulnasoft-lab/vul-operator/pkg/rbacassessment"
 	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
