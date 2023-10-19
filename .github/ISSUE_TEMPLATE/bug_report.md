@@ -1,6 +1,7 @@
 ---
 name: Bug report
-about: Tell us about a problem you are experiencing
+labels: kind/bug
+about: If something isn't working as expected.
 ---
 
 **What steps did you take and what happened:**
@@ -15,6 +16,6 @@ about: Tell us about a problem you are experiencing
 
 **Environment:**
 
-- Starboard version (use `starboard version`):
+- Vul-Operator version (use `vul-operator version`):
 - Kubernetes version (use `kubectl version`):
 - OS (macOS 10.15, Windows 10, Ubuntu 19.10 etc):

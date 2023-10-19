@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/docker"
+	"github.com/khulnasoft-lab/vul-operator/pkg/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +21,8 @@ func TestConfig_Read(t *testing.T) {
 
 		expectedAuth  map[string]docker.Auth
 		expectedError error
+
+		isLegacy bool
 	}{
 		{
 			name:         "Should return empty credentials when content is empty JSON object",
@@ -92,7 +94,7 @@ func TestConfig_Read(t *testing.T) {
 			givenJSON: `{
 						"auths": {
 						"https://index.docker.io/v1/": {
-							
+
 						},
 						"harbor.domain": {
 							"auth": "YWRtaW46SGFyYm9yMTIzNDU="
@@ -118,12 +120,36 @@ func TestConfig_Read(t *testing.T) {
 						}`,
 			expectedError: errors.New("expected username and password concatenated with a colon (:)"),
 		},
+		{
+			name:     "Should process legacy .dockercfg json",
+			isLegacy: true,
+			givenJSON: `{
+							"https://index.docker.io/v1/": {
+								"auth": "ZG9ja2VyOmh1Yg=="
+							},
+							"harbor.domain": {
+								"auth": "YWRtaW46SGFyYm9yMTIzNDU="
+							}
+						}`,
+			expectedAuth: map[string]docker.Auth{
+				"https://index.docker.io/v1/": {
+					Auth:     "ZG9ja2VyOmh1Yg==",
+					Username: "docker",
+					Password: "hub",
+				},
+				"harbor.domain": {
+					Auth:     "YWRtaW46SGFyYm9yMTIzNDU=",
+					Username: "admin",
+					Password: "Harbor12345",
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dockerConfig := &docker.Config{}
-			err := dockerConfig.Read([]byte(tc.givenJSON))
+			err := dockerConfig.Read([]byte(tc.givenJSON), tc.isLegacy)
 			switch {
 			case tc.expectedError != nil:
 				assert.EqualError(t, err, tc.expectedError.Error())
@@ -150,7 +176,7 @@ func TestGetServerFromDockerAuthKey(t *testing.T) {
 			expectedServer: "core.harbor.domain:8080",
 		},
 		{
-			authKey:        "rg.pl-waw.scw.cloud/starboard",
+			authKey:        "rg.pl-waw.scw.cloud/vuloperator",
 			expectedServer: "rg.pl-waw.scw.cloud",
 		},
 		{

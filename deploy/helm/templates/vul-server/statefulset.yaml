@@ -1,0 +1,128 @@
+{{- if .Values.operator.builtInVulServer }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: vul-server
+  namespace: {{ include "vul-operator.namespace" . }}
+  labels:
+    app.kubernetes.io/name: vul-server
+    app.kubernetes.io/instance: vul-server
+spec:
+  podManagementPolicy: "Parallel"
+  serviceName: {{ .Values.vul.serverServiceName }}
+  replicas: {{ .Values.vul.server.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vul-server
+      app.kubernetes.io/instance: vul-server
+  {{- if .Values.vul.storageClassEnabled }}
+  volumeClaimTemplates:
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        resources:
+          requests:
+            storage: 5Gi
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.vul.storageClassName }}
+  {{- end }}        
+  template:
+    metadata:
+      annotations:
+        checksum/config: 7fcc66ace3f98462349856795765021e7bf7a0106f28439a9f6dc74257404370
+      labels:
+        {{- with .Values.vul.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        app.kubernetes.io/name: vul-server
+        app.kubernetes.io/instance: vul-server
+    spec:
+      {{- with .Values.vul.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      serviceAccountName: {{ include "vul-operator.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.vul.server.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vul.image.imagePullSecret }}
+      imagePullSecrets:
+      - name:  {{ . }}
+      {{- end }}
+      containers:
+        - name: vul-server
+          image: "{{ include "global.imageRegistry" . | default .Values.vul.image.registry }}/{{ .Values.vul.image.repository }}:{{ .Values.vul.image.tag }}"
+          imagePullPolicy: "IfNotPresent"
+          {{- with .Values.vul.server.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            - server
+          {{- if or (or .Values.vul.httpProxy .Values.vul.httpsProxy) .Values.vul.noProxy }}
+          env:
+            {{- with .Values.vul.httpProxy | quote }}
+            - name: HTTP_PROXY
+              value: {{ . }}
+            {{- end }}
+            {{- with .Values.vul.httpsProxy | quote }}
+            - name: HTTPS_PROXY
+              value: {{ . }}
+            {{- end }}
+            {{- with .Values.vul.noProxy | quote }}
+            - name: NO_PROXY
+              value: {{ . }}
+            {{- end }}
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: vul-operator-vul-config
+            - secretRef:
+                name: vul-operator-vul-config
+          ports:
+            - name: vul-http
+              containerPort: 4954
+          livenessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /healthz
+              port: vul-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 10
+          readinessProbe:
+            httpGet:
+              scheme: HTTP
+              path: /healthz
+              port: vul-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            failureThreshold: 3
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-data
+              readOnly: false
+            - mountPath: /home/scanner/.cache
+              name: data
+              readOnly: false
+          {{- with .Values.vul.server.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: tmp-data
+          emptyDir: {}
+        {{- if not .Values.vul.storageClassEnabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

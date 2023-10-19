@@ -1,0 +1,10 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vul-system
+  labels:
+    app.kubernetes.io/name: vul-operator
+    app.kubernetes.io/instance: vul-operator
+    app.kubernetes.io/version: "0.16.3"
+    app.kubernetes.io/managed-by: kubectl

@@ -1,0 +1,21 @@
+{{- if .Values.operator.builtInVulServer }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.vul.serverServiceName }}
+  namespace: {{ include "vul-operator.namespace" . }}
+  labels:
+    app.kubernetes.io/name: vul-server
+    app.kubernetes.io/instance: vul-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vul-server
+    app.kubernetes.io/instance: vul-server
+  ports:
+    - name: vul-http
+      protocol: TCP
+      port: 4954
+      targetPort: 4954
+  sessionAffinity: ClientIP
+{{- end }}

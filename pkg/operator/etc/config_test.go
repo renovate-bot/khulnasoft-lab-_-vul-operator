@@ -1,24 +1,12 @@
 package etc_test
 
 import (
-	"os"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/operator/etc"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestGetOperatorConfig(t *testing.T) {
-
-	t.Run("Should return error when plugin-based and built-in scanners are enabled", func(t *testing.T) {
-		os.Setenv("OPERATOR_CONFIG_AUDIT_SCANNER_ENABLED", "true")
-		os.Setenv("OPERATOR_CONFIG_AUDIT_SCANNER_BUILTIN", "true")
-		_, err := etc.GetOperatorConfig()
-		assert.EqualError(t, err, "plugin-based and built-in configuration audit scanners cannot be enabled at the same time")
-	})
-
-}
 
 func TestOperator_GetTargetNamespaces(t *testing.T) {
 	testCases := []struct {
@@ -112,6 +100,80 @@ func TestOperator_ResolveInstallMode(t *testing.T) {
 			default:
 				require.EqualError(t, err, tc.expectedError)
 			}
+		})
+	}
+}
+
+func TestOperator_GetTargetWorkloads(t *testing.T) {
+	testCases := []struct {
+		name                    string
+		operator                etc.Config
+		expectedTargetWorkloads []string
+	}{
+		{
+			name: "Should return all target workloads",
+			operator: etc.Config{
+				TargetWorkloads: "Pod,ReplicaSet,ReplicationController,StatefulSet,DaemonSet,CronJob,Job",
+			},
+			expectedTargetWorkloads: []string{"pod", "replicaset", "replicationcontroller", "statefulset", "daemonset", "cronjob", "job"},
+		},
+		{
+			name: "Should return single workload",
+			operator: etc.Config{
+				TargetWorkloads: "Pod",
+			},
+			expectedTargetWorkloads: []string{"pod"},
+		},
+		{
+			name: "Should return multiple workloads",
+			operator: etc.Config{
+				TargetWorkloads: "Pod,Job,StatefulSet",
+			},
+			expectedTargetWorkloads: []string{"pod", "job", "statefulset"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expectedTargetWorkloads, tc.operator.GetTargetWorkloads())
+		})
+	}
+}
+
+func TestOperator_GetPrivateRegistryScanSecretsNames(t *testing.T) {
+	testCases := []struct {
+		name                     string
+		operator                 etc.Config
+		expectedNameSpaceSecrets map[string]string
+	}{
+		{
+			name: "Should return namespace with multi secrets",
+			operator: etc.Config{
+				PrivateRegistryScanSecretsNames: "{\"mynamespace\":\"mySecrets,anotherSecret\"}",
+			},
+			expectedNameSpaceSecrets: map[string]string{"mynamespace": "mySecrets,anotherSecret"},
+		},
+		{
+			name: "Should return namespace with singlt secrets",
+			operator: etc.Config{
+				PrivateRegistryScanSecretsNames: "{\"mynamespace\":\"mySecrets\"}",
+			},
+			expectedNameSpaceSecrets: map[string]string{"mynamespace": "mySecrets"},
+		},
+		{
+			name: "Should return empty map",
+			operator: etc.Config{
+				PrivateRegistryScanSecretsNames: "{}",
+			},
+			expectedNameSpaceSecrets: map[string]string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			secrets, err := tc.operator.GetPrivateRegistryScanSecretsNames()
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expectedNameSpaceSecrets, secrets)
 		})
 	}
 }

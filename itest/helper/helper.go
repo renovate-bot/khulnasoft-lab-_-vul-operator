@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/docker"
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	"github.com/caarlos0/env/v6"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/docker"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/khulnasoft-lab/starboard/pkg/kubebench"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -26,10 +25,10 @@ import (
 )
 
 type PrivateRegistryConfig struct {
-	Server   string `env:"STARBOARD_TEST_REGISTRY_SERVER"`
-	Username string `env:"STARBOARD_TEST_REGISTRY_USERNAME"`
-	Password string `env:"STARBOARD_TEST_REGISTRY_PASSWORD"`
-	ImageRef string `env:"STARBOARD_TEST_REGISTRY_PRIVATE_IMAGE_REF"`
+	Server   string `env:"VUL_OPERATOR_TEST_REGISTRY_SERVER"`
+	Username string `env:"VUL_OPERATOR_TEST_REGISTRY_USERNAME"`
+	Password string `env:"VUL_OPERATOR_TEST_REGISTRY_PASSWORD"`
+	ImageRef string `env:"VUL_OPERATOR_TEST_REGISTRY_PRIVATE_IMAGE_REF"`
 }
 
 func (c *PrivateRegistryConfig) Parse() error {
@@ -100,12 +99,6 @@ type ServiceAccountBuilder struct {
 	target *corev1.ServiceAccount
 }
 
-func NewServiceAccount() *ServiceAccountBuilder {
-	return &ServiceAccountBuilder{
-		target: &corev1.ServiceAccount{},
-	}
-}
-
 func (b *ServiceAccountBuilder) WithRandomName(prefix string) *ServiceAccountBuilder {
 	b.target.Name = prefix + "-" + rand.String(5)
 	return b
@@ -131,12 +124,6 @@ type SecretBuilder struct {
 	registryServer   string
 	registryUsername string
 	registryPassword string
-}
-
-func NewDockerRegistrySecret() *SecretBuilder {
-	return &SecretBuilder{
-		target: &corev1.Secret{},
-	}
 }
 
 func (b *SecretBuilder) WithRandomName(name string) *SecretBuilder {
@@ -225,7 +212,7 @@ func (b *DeploymentBuilder) Build() *appsv1.Deployment {
 			Namespace: b.namespace,
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas: pointer.Int32Ptr(1),
+			Replicas: pointer.Int32(1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"app": b.name,
@@ -247,9 +234,9 @@ func (b *DeploymentBuilder) Build() *appsv1.Deployment {
 
 var (
 	vulScanner = v1alpha1.Scanner{
-		Name:    "Vul",
-		Vendor:  "KhulnaSoft",
-		Version: "0.16.0",
+		Name:    v1alpha1.ScannerNameVul,
+		Vendor:  "Khulnasoft Security",
+		Version: "0.16.3",
 	}
 )
 
@@ -258,10 +245,6 @@ type VulnerabilityReportBuilder struct {
 	namespace string
 	ownerKind kube.Kind
 	ownerName string
-}
-
-func NewVulnerabilityReport() *VulnerabilityReportBuilder {
-	return &VulnerabilityReportBuilder{}
 }
 
 func (b *VulnerabilityReportBuilder) WithName(name string) *VulnerabilityReportBuilder {
@@ -290,10 +273,10 @@ func (b *VulnerabilityReportBuilder) Build() *v1alpha1.VulnerabilityReport {
 			Name:      b.name,
 			Namespace: b.namespace,
 			Labels: map[string]string{
-				starboard.LabelContainerName:     "nginx", // TODO Make it configurable
-				starboard.LabelResourceKind:      string(b.ownerKind),
-				starboard.LabelResourceName:      b.ownerName,
-				starboard.LabelResourceNamespace: b.namespace,
+				vuloperator.LabelContainerName:     "nginx", // TODO Make it configurable
+				vuloperator.LabelResourceKind:      string(b.ownerKind),
+				vuloperator.LabelResourceName:      b.ownerName,
+				vuloperator.LabelResourceNamespace: b.namespace,
 			},
 		},
 		Report: v1alpha1.VulnerabilityReportData{
@@ -329,16 +312,14 @@ func (b *VulnerabilityReportBuilder) Build() *v1alpha1.VulnerabilityReport {
 
 // Helper is a mix of asserts and helpers, but we can fix that later.
 type Helper struct {
-	scheme                *runtime.Scheme
-	kubeClient            client.Client
-	kubeBenchReportReader kubebench.Reader
+	scheme     *runtime.Scheme
+	kubeClient client.Client
 }
 
-func NewHelper(client client.Client) *Helper {
+func NewHelper(c client.Client) *Helper {
 	return &Helper{
-		scheme:                client.Scheme(),
-		kubeClient:            client,
-		kubeBenchReportReader: kubebench.NewReadWriter(client),
+		scheme:     c.Scheme(),
+		kubeClient: c,
 	}
 }
 
@@ -360,9 +341,9 @@ func (h *Helper) HasVulnerabilityReportOwnedBy(obj client.Object) func() (bool, 
 		}
 		var reportList v1alpha1.VulnerabilityReportList
 		err = h.kubeClient.List(context.Background(), &reportList, client.MatchingLabels{
-			starboard.LabelResourceKind:      gvk.Kind,
-			starboard.LabelResourceName:      obj.GetName(),
-			starboard.LabelResourceNamespace: obj.GetNamespace(),
+			vuloperator.LabelResourceKind:      gvk.Kind,
+			vuloperator.LabelResourceName:      obj.GetName(),
+			vuloperator.LabelResourceNamespace: obj.GetNamespace(),
 		})
 		if err != nil {
 			return false, err
@@ -379,9 +360,9 @@ func (h *Helper) HasConfigAuditReportOwnedBy(obj client.Object) func() (bool, er
 		}
 		var reportsList v1alpha1.ConfigAuditReportList
 		err = h.kubeClient.List(context.Background(), &reportsList, client.MatchingLabels{
-			starboard.LabelResourceKind:      gvk.Kind,
-			starboard.LabelResourceName:      obj.GetName(),
-			starboard.LabelResourceNamespace: obj.GetNamespace(),
+			vuloperator.LabelResourceKind:      gvk.Kind,
+			vuloperator.LabelResourceName:      obj.GetName(),
+			vuloperator.LabelResourceNamespace: obj.GetNamespace(),
 		})
 		if err != nil {
 			return false, err
@@ -398,9 +379,9 @@ func (h *Helper) DeleteConfigAuditReportOwnedBy(obj client.Object) error {
 	}
 	var reportsList v1alpha1.ConfigAuditReportList
 	err = h.kubeClient.List(context.Background(), &reportsList, client.MatchingLabels{
-		starboard.LabelResourceKind:      gvk.Kind,
-		starboard.LabelResourceName:      obj.GetName(),
-		starboard.LabelResourceNamespace: obj.GetNamespace(),
+		vuloperator.LabelResourceKind:      gvk.Kind,
+		vuloperator.LabelResourceName:      obj.GetName(),
+		vuloperator.LabelResourceNamespace: obj.GetNamespace(),
 	})
 	if err != nil {
 		return err
@@ -442,16 +423,7 @@ func (h *Helper) GetActiveReplicaSetForDeployment(namespace, name string) (*apps
 	return nil, nil
 }
 
-func (h *Helper) HasCISKubeBenchReportOwnedBy(node corev1.Node) func() (bool, error) {
-	return func() (bool, error) {
-		report, err := h.kubeBenchReportReader.FindByOwner(context.Background(), kube.ObjectRef{Kind: kube.KindNode, Name: node.Name})
-		if err != nil {
-			return false, err
-		}
-		return report != nil, nil
-	}
-}
-
+// nolint:staticcheck
 func (h *Helper) UpdateDeploymentImage(namespace, name string) error {
 	// TODO Check kubectl set image implementation
 	return wait.PollImmediate(5*time.Second, 2*time.Minute, func() (bool, error) {

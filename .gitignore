@@ -1,7 +1,7 @@
 .idea/
 .vscode/
 
-bin/starboard*
+bin/
 dist/
 
 coverage.txt
@@ -19,3 +19,6 @@ output/*
 .cr-release-packages/*
 ## idea files
 *.iml
+## yamllint logfile
+yamllint-*
+kubeconfig

@@ -2,14 +2,27 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path"
+	"path/filepath"
 	"strings"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/open-policy-agent/opa/ast"
-	"github.com/open-policy-agent/opa/rego"
+	"github.com/khulnasoft-lab/defsec/pkg/severity"
+	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport"
+	"github.com/khulnasoft-lab/vul-operator/pkg/plugins/vul"
+	"github.com/khulnasoft-lab/vul/pkg/mapfs"
+
+	"github.com/go-logr/logr"
+	"github.com/liamg/memoryfs"
+
+	"github.com/khulnasoft-lab/defsec/pkg/scan"
+	"github.com/khulnasoft-lab/defsec/pkg/scanners/kubernetes"
+	"github.com/khulnasoft-lab/defsec/pkg/scanners/options"
+
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -18,106 +31,33 @@ const (
 	keyPrefixLibrary = "library."
 	keySuffixKinds   = ".kinds"
 	keySuffixRego    = ".rego"
+
+	PoliciesNotFoundError = "no policies found"
 )
 
 const (
-	kindAny      = "*"
-	kindWorkload = "Workload"
+	kindAny                   = "*"
+	kindWorkload              = "Workload"
+	inputFolder               = "inputs"
+	policiesFolder            = "externalPolicies"
+	regoExt                   = "rego"
+	yamlExt                   = "yaml"
+	externalPoliciesNamespace = "vuloperator"
 )
-
-const (
-	// varMessage is the name of Rego variable used to bind deny or warn
-	// messages.
-	varMessage = "msg"
-	// varMetadata is the name of Rego variable used to bind policy metadata.
-	varMetadata = "md"
-	// varResult is the name of Rego variable used to bind result of evaluating
-	// deny or warn rules.
-	varResult = "res"
-)
-
-// Metadata describes policy metadata.
-type Metadata struct {
-	ID          string
-	Title       string
-	Severity    v1alpha1.Severity
-	Type        string
-	Description string
-}
-
-// NewMetadata constructs new Metadata based on raw values.
-func NewMetadata(values map[string]interface{}) (Metadata, error) {
-	if values == nil {
-		return Metadata{}, errors.New("values must not be nil")
-	}
-	severityString, err := requiredStringValue(values, "severity")
-	if err != nil {
-		return Metadata{}, err
-	}
-	severity, err := v1alpha1.StringToSeverity(severityString)
-	if err != nil {
-		return Metadata{}, fmt.Errorf("failed parsing severity: %w", err)
-	}
-	id, err := requiredStringValue(values, "id")
-	if err != nil {
-		return Metadata{}, err
-	}
-	title, err := requiredStringValue(values, "title")
-	if err != nil {
-		return Metadata{}, err
-	}
-	policyType, err := requiredStringValue(values, "type")
-	if err != nil {
-		return Metadata{}, err
-	}
-	description, err := requiredStringValue(values, "description")
-	if err != nil {
-		return Metadata{}, err
-	}
-
-	return Metadata{
-		Severity:    severity,
-		ID:          id,
-		Title:       title,
-		Type:        policyType,
-		Description: description,
-	}, nil
-}
-
-// Result describes result of evaluating a Rego policy that defines `deny` or
-// `warn` rules.
-type Result struct {
-	// Metadata describes Rego policy metadata.
-	Metadata Metadata
-
-	// Success represents the status of evaluating Rego policy.
-	Success bool
-
-	// Messages deny or warning messages.
-	Messages []string
-}
-
-type Results []Result
-
-// NewMessage constructs new message string based on raw values.
-func NewMessage(values map[string]interface{}) (string, error) {
-	if values == nil {
-		return "", errors.New("values must not be nil")
-	}
-	message, err := requiredStringValue(values, varMessage)
-	if err != nil {
-		return "", err
-	}
-	return message, nil
-}
 
 type Policies struct {
-	data map[string]string
+	data           map[string]string
+	log            logr.Logger
+	cac            configauditreport.ConfigAuditConfig
+	clusterVersion string
 }
 
-func NewPolicies(data map[string]string) *Policies {
+func NewPolicies(data map[string]string, cac configauditreport.ConfigAuditConfig, log logr.Logger, serverVersion string) *Policies {
 	return &Policies{
-		data: data,
+		data:           data,
+		log:            log,
+		cac:            cac,
+		clusterVersion: serverVersion,
 	}
 }
 
@@ -156,7 +96,6 @@ func (p *Policies) PoliciesByKind(kind string) (map[string]string, error) {
 			if k != kindAny && k != kindWorkload && k != kind {
 				continue
 			}
-
 			policyKey := strings.TrimSuffix(key, keySuffixKinds) + keySuffixRego
 			var ok bool
 
@@ -187,28 +126,61 @@ func (p *Policies) ModulesByKind(kind string) (map[string]string, error) {
 	}
 	return modules, nil
 }
-
-func (p *Policies) Applicable(resource client.Object) (bool, string, error) {
-	resourceKind := resource.GetObjectKind().GroupVersionKind().Kind
-	if resourceKind == "" {
-		return false, "", errors.New("resource kind must not be blank")
+func (p *Policies) ModulePolicyByKind(kind string) ([]string, error) {
+	modByKind, err := p.ModulesByKind(kind)
+	if err != nil {
+		return nil, err
 	}
-	policies, err := p.PoliciesByKind(resourceKind)
+	policy := make([]string, 0, len(modByKind))
+	for _, mod := range modByKind {
+		policy = append(policy, mod)
+	}
+	return policy, nil
+}
+
+// Applicable check if policies exist either built in or via policies configmap
+func (p *Policies) Applicable(resourceKind string) (bool, string, error) {
+	HasExternalPolicies, err := p.ExternalPoliciesApplicable(resourceKind)
 	if err != nil {
 		return false, "", err
 	}
-	if len(policies) == 0 {
-		return false, fmt.Sprintf("no policies found for kind %s", resource.GetObjectKind().GroupVersionKind().Kind), nil
+	if !HasExternalPolicies && !p.cac.GetUseBuiltinRegoPolicies() {
+		return false, fmt.Sprintf("no policies found for kind %s", resourceKind), nil
 	}
 	return true, "", nil
 }
 
+func (p *Policies) ExternalPoliciesApplicable(resourceKind string) (bool, error) {
+	policies, err := p.PoliciesByKind(resourceKind)
+	if err != nil {
+		return false, err
+	}
+	return len(policies) > 0, nil
+}
+
+// SupportedKind scan policies supported for this kind
+func (p *Policies) SupportedKind(resource client.Object, rbacDEnable bool) (bool, error) {
+	resourceKind := resource.GetObjectKind().GroupVersionKind().Kind
+	if resourceKind == "" {
+		return false, errors.New("resource kind must not be blank")
+	}
+	for _, kind := range p.cac.GetSupportedConfigAuditKinds() {
+		if kind == resourceKind && !p.rbacDisabled(rbacDEnable, kind) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (p *Policies) rbacDisabled(rbacEnable bool, kind string) bool {
+	if !rbacEnable && kube.IsRoleTypes(kube.Kind(kind)) {
+		return true
+	}
+	return false
+}
+
 // Eval evaluates Rego policies with Kubernetes resource client.Object as input.
-//
-// TODO(danielpacak) Compile and cache prepared queries to make Eval more efficient.
-//
-//	We can reuse prepared queries so long policies do not change.
-func (p *Policies) Eval(ctx context.Context, resource client.Object) (Results, error) {
+func (p *Policies) Eval(ctx context.Context, resource client.Object, inputs ...[]byte) (scan.Results, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource must not be nil")
 	}
@@ -216,171 +188,129 @@ func (p *Policies) Eval(ctx context.Context, resource client.Object) (Results, e
 	if resourceKind == "" {
 		return nil, fmt.Errorf("resource kind must not be blank")
 	}
-
-	var results Results
-
-	policies, err := p.PoliciesByKind(resourceKind)
+	externalPolicies, err := p.ModulePolicyByKind(resourceKind)
 	if err != nil {
-		return nil, fmt.Errorf("failed listing policies by kind: %s: %w", resourceKind, err)
+		return nil, fmt.Errorf("failed listing externalPolicies by kind: %s: %w", resourceKind, err)
 	}
-
-	for policyName, policyCode := range policies {
-		parsedModules := make(map[string]*ast.Module)
-
-		for libraryName, libraryCode := range p.Libraries() {
-			var parsedLibrary *ast.Module
-			parsedLibrary, err = ast.ParseModule(libraryName, libraryCode)
-			if err != nil {
-				return nil, fmt.Errorf("failed parsing Rego library: %s: %w", libraryName, err)
-			}
-			parsedModules[libraryName] = parsedLibrary
-		}
-
-		parsedPolicy, err := ast.ParseModule(policyName, policyCode)
-		if err != nil {
-			return nil, fmt.Errorf("failed parsing Rego policy: %s: %w", policyName, err)
-		}
-		parsedModules[policyName] = parsedPolicy
-
-		compiler := ast.NewCompiler()
-		compiler.Compile(parsedModules)
-		if compiler.Failed() {
-			return nil, fmt.Errorf("failed compiling Rego policy: %s: %w", policyName, compiler.Errors)
-		}
-
-		metadataQuery := fmt.Sprintf("md = %s.__rego_metadata__", parsedPolicy.Package.Path.String())
-		metadata, err := rego.New(
-			rego.Compiler(compiler),
-			rego.Query(metadataQuery),
-		).Eval(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed evaluating Rego metadata rule: %s: %w", metadataQuery, err)
-		}
-
-		metadataResult, hasMetadataResult := hasBinding(metadata, varMetadata)
-
-		if !hasMetadataResult {
-			return nil, fmt.Errorf("failed parsing policy metadata: %s", policyName)
-		}
-
-		md, err := NewMetadata(metadataResult)
-		if err != nil {
-			return nil, fmt.Errorf("failed parsing policy metadata: %s: %w", policyName, err)
-		}
-
-		denyQuery := fmt.Sprintf("%s.deny[res]", parsedPolicy.Package.Path.String())
-		deny, err := rego.New(
-			rego.Compiler(compiler),
-			rego.Query(denyQuery),
-			rego.Input(resource),
-		).Eval(ctx)
-
-		if err != nil {
-			return nil, fmt.Errorf("failed evaluating Rego deny rule: %s: %w", denyQuery, err)
-		}
-
-		denyValues, hasDenyValues := hasBindings(deny, varResult)
-		if hasDenyValues {
-			denyResults, err := valuesToResults(md, denyValues)
-			if err != nil {
-				return nil, fmt.Errorf("failed parsing deny rule result: %s: %w", denyQuery, err)
-			}
-			results = append(results, denyResults...)
-			continue
-		}
-
-		warnQuery := fmt.Sprintf("%s.warn[res]", parsedPolicy.Package.Path.String())
-		warn, err := rego.New(
-			rego.Compiler(compiler),
-			rego.Query(warnQuery),
-			rego.Input(resource),
-		).Eval(ctx)
-
-		if err != nil {
-			return nil, fmt.Errorf("failed evaluating Rego warn rule: %s: %w", warnQuery, err)
-		}
-
-		warnValues, hasWarnValues := hasBindings(warn, varResult)
-		if hasWarnValues {
-			warnResults, err := valuesToResults(md, warnValues)
-			if err != nil {
-				return nil, fmt.Errorf("failed parsing warn rule result: %s: %w", warnQuery, err)
-			}
-			results = append(results, warnResults...)
-			continue
-		}
-
-		results = append(results, Result{
-			Metadata: md,
-			Success:  true,
-		})
+	memfs := memoryfs.New()
+	hasExternalPolicies := len(externalPolicies) > 0
+	if !hasExternalPolicies && !p.cac.GetUseBuiltinRegoPolicies() {
+		return scan.Results{}, fmt.Errorf(PoliciesNotFoundError)
 	}
-
-	return results, nil
-}
-
-func hasBinding(rs rego.ResultSet, key string) (map[string]interface{}, bool) {
-	if rs == nil || len(rs) == 0 {
-		return nil, false
-	}
-	binding, ok := rs[0].Bindings[key]
-	return binding.(map[string]interface{}), ok
-}
-
-func hasBindings(rs rego.ResultSet, key string) ([]map[string]interface{}, bool) {
-	if rs == nil || len(rs) == 0 {
-		return nil, false
-	}
-	var values []map[string]interface{}
-
-	for _, r := range rs {
-		binding, ok := r.Bindings[key]
-		if !ok {
-			continue
-		}
-		value, ok := binding.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		values = append(values, value)
-	}
-	return values, len(rs) == len(values)
-}
-
-func requiredStringValue(values map[string]interface{}, key string) (string, error) {
-	value, ok := values[key]
-	if !ok {
-		return "", fmt.Errorf("required key not found: %s", key)
-	}
-	if value == nil {
-		return "", fmt.Errorf("required value is nil for key: %s", key)
-	}
-	valueString, ok := value.(string)
-	if !ok {
-		return "", fmt.Errorf("expected string got %T for key: %s", value, key)
-	}
-	if valueString == "" {
-		return "", fmt.Errorf("required value is blank for key: %s", key)
-	}
-	return valueString, nil
-}
-
-func valuesToResults(md Metadata, values []map[string]interface{}) (Results, error) {
-	var results Results
-	var messages []string
-
-	for _, value := range values {
-		message, err := NewMessage(value)
+	if hasExternalPolicies {
+		// add externalPolicies files
+		err = createPolicyInputFS(memfs, policiesFolder, externalPolicies, regoExt)
 		if err != nil {
 			return nil, err
 		}
-		messages = append(messages, message)
+	}
+	var inputResource []byte
+	if err != nil {
+		return nil, err
+	}
+	if len(inputs) > 0 {
+		inputResource = inputs[0]
+	} else {
+		if jsonManifest, ok := resource.GetAnnotations()["kubectl.kubernetes.io/last-applied-configuration"]; ok {
+			inputResource = []byte(jsonManifest) // required for outdated-api when k8s convert resources
+		} else {
+			inputResource, err = json.Marshal(resource)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	// add input files
+	err = createPolicyInputFS(memfs, inputFolder, []string{string(inputResource)}, yamlExt)
+	if err != nil {
+		return nil, err
 	}
 
-	results = append(results, Result{
-		Metadata: md,
-		Success:  false,
-		Messages: messages,
-	})
-	return results, nil
+	dataFS, dataPaths, err := createDataFS([]string{}, p.clusterVersion)
+	if err != nil {
+		return nil, err
+	}
+	scanner := kubernetes.NewScanner(getScannerOptions(hasExternalPolicies,
+		p.cac.GetUseBuiltinRegoPolicies(),
+		policiesFolder,
+		dataPaths,
+		dataFS)...)
+	scanResult, err := scanner.ScanFS(ctx, memfs, inputFolder)
+	if err != nil {
+		return nil, err
+	}
+	// special case when lib return nil for both checks and error
+	if scanResult == nil && err == nil {
+		return nil, fmt.Errorf("failed to run policy checks on resources")
+	}
+	return scanResult, nil
+}
+
+// GetResultID return the result id found in aliases (legacy) otherwise use AvdID
+func (r *Policies) GetResultID(result scan.Result) string {
+	id := result.Rule().AVDID
+	if len(result.Rule().Aliases) > 0 {
+		id = result.Rule().Aliases[0]
+	}
+	return id
+}
+
+func (r *Policies) HasSeverity(resultSeverity severity.Severity) bool {
+	defaultSeverity := r.cac.GetSeverity()
+	if defaultSeverity == "" {
+		defaultSeverity = vul.DefaultSeverity
+	}
+	return strings.Contains(defaultSeverity, string(resultSeverity))
+}
+
+func getScannerOptions(hasExternalPolicies bool, useDefaultPolicies bool, policiesFolder string, dataPaths []string, dataFS fs.FS) []options.ScannerOption {
+	optionsArray := []options.ScannerOption{options.ScannerWithEmbeddedPolicies(useDefaultPolicies)}
+	if hasExternalPolicies {
+		optionsArray = append(optionsArray, options.ScannerWithPolicyDirs(policiesFolder))
+		optionsArray = append(optionsArray, options.ScannerWithPolicyNamespaces(externalPoliciesNamespace))
+	}
+	optionsArray = append(optionsArray, options.ScannerWithEmbeddedLibraries(true))
+	optionsArray = append(optionsArray, options.ScannerWithDataDirs(dataPaths...))
+	optionsArray = append(optionsArray, options.ScannerWithDataFilesystem(dataFS))
+	return optionsArray
+}
+
+func createPolicyInputFS(memfs *memoryfs.FS, folderName string, fileData []string, ext string) error {
+	if len(fileData) == 0 {
+		return nil
+	}
+	if err := memfs.MkdirAll(filepath.Base(folderName), 0o700); err != nil {
+		return err
+	}
+	for index, file := range fileData {
+		if err := memfs.WriteFile(path.Join(folderName, fmt.Sprintf("file_%d.%s", index, ext)), []byte(file), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func createDataFS(dataPaths []string, k8sVersion string) (fs.FS, []string, error) {
+	fsys := mapfs.New()
+
+	// Create a virtual file for Kubernetes scanning
+	if k8sVersion != "" {
+		if err := fsys.MkdirAll("system", 0700); err != nil {
+			return nil, nil, err
+		}
+		data := []byte(fmt.Sprintf(`{"k8s": {"version": "%s"}}`, k8sVersion))
+		if err := fsys.WriteVirtualFile("system/k8s-version.json", data, 0600); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, path := range dataPaths {
+		if err := fsys.CopyFilesUnder(path); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// data paths are no longer needed as fs.FS contains only needed files now.
+	dataPaths = []string{"."}
+
+	return fsys, dataPaths, nil
 }

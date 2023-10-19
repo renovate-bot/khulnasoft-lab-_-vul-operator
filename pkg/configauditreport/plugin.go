@@ -1,46 +1,27 @@
 package configauditreport
 
 import (
-	"io"
-
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 )
 
-// Plugin defines the interface between Starboard and Kubernetes workload
-// configuration checkers / linters / sanitizers.
-type Plugin interface {
+// PluginInMemory defines the interface between vul-operator and vul configuration
+type PluginInMemory interface {
 
 	// Init is a callback to initialize this plugin, e.g. ensure the default
 	// configuration.
-	Init(ctx starboard.PluginContext) error
+	Init(ctx vuloperator.PluginContext) error
 
-	// GetScanJobSpec describes the pod that will be created by Starboard when
-	// it schedules a Kubernetes job to scan the specified workload client.Object.
-	// The plugin might return zero to many v1.Secret objects which will be
-	// created by Starboard and associated with the scan job.
-	GetScanJobSpec(ctx starboard.PluginContext, obj client.Object) (corev1.PodSpec, []*corev1.Secret, error)
+	NewConfigForConfigAudit(ctx vuloperator.PluginContext) (ConfigAuditConfig, error)
+}
 
-	// ParseConfigAuditReportData is a callback to parse and convert logs of
-	// the container in a pod controlled by the scan job to v1alpha1.ConfigAuditReportData.
-	ParseConfigAuditReportData(ctx starboard.PluginContext, logsReader io.ReadCloser) (v1alpha1.ConfigAuditReportData, error)
+// ConfigAuditConfig defines the interface between vul-operator and vul configuration which related to configauditreport
+type ConfigAuditConfig interface {
 
-	// GetContainerName returns the name of the container in a pod created by a scan job
-	// to read logs from.
-	GetContainerName() string
+	// GetUseBuiltinRegoPolicies return vul config which associated to configauditreport plugin
+	GetUseBuiltinRegoPolicies() bool
+	// GetSupportedConfigAuditKinds list of supported kinds to be scanned by the config audit scanner
+	GetSupportedConfigAuditKinds() []string
 
-	// ConfigHash returns hash of the plugin's configuration settings. The computed hash
-	// is used to invalidate v1alpha1.ConfigAuditReport and v1alpha1.ClusterConfigAuditReport
-	// objects whenever configuration applicable to the specified resource kind changes.
-	ConfigHash(ctx starboard.PluginContext, kind kube.Kind) (string, error)
-
-	// SupportedKinds returns kinds supported by this plugin.
-	SupportedKinds() []kube.Kind
-
-	// IsApplicable return true if the given object can be scanned by this
-	// plugin, false otherwise.
-	IsApplicable(ctx starboard.PluginContext, obj client.Object) (bool, string, error)
+	// GetSeverity get security level
+	GetSeverity() string
 }

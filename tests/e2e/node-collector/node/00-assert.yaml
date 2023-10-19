@@ -1,0 +1,5 @@
+---
+apiVersion: khulnasoft-lab.github.io/v1alpha1
+kind: ClusterInfraAssessmentReport
+metadata:
+  name: node-kind-control-plane

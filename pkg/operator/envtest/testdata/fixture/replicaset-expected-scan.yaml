@@ -1,0 +1,181 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  annotations:
+    vul-operator.container-images: '{"wordpress":"wordpress:4.9"}'
+  generation: 1
+  labels:
+    app.kubernetes.io/managed-by: vul-operator
+    resource-spec-hash: <HASH>
+    vul-operator.resource.kind: ReplicaSet
+    vul-operator.resource.name: wordpress-84bbf6f4dd
+    vul-operator.resource.namespace: default
+    vulnerabilityReport.scanner: Vul
+  name: scan-vulnerabilityreport-5668c4b796
+spec:
+  backoffLimit: 0
+  completionMode: NonIndexed
+  completions: 1
+  parallelism: 1
+  selector:
+    matchLabels:
+      controller-uid: <CONTROLLER-UID>
+  suspend: false
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/managed-by: vul-operator
+        controller-uid: <CONTROLLER-UID>
+        job-name: scan-vulnerabilityreport-5668c4b796
+        resource-spec-hash: <HASH>
+        vul-operator.resource.kind: ReplicaSet
+        vul-operator.resource.name: wordpress-84bbf6f4dd
+        vul-operator.resource.namespace: default
+        vulnerabilityReport.scanner: Vul
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/os
+                    operator: In
+                    values:
+                      - linux
+      automountServiceAccountToken: false
+      containers:
+        - args:
+            - -c
+            - vul image --slow 'wordpress:4.9' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_wordpress.json &&  bzip2 -c /tmp/scan/result_wordpress.json | base64
+          command:
+            - /bin/sh
+          env:
+            - name: VUL_SEVERITY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.severity
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: VUL_IGNORE_UNFIXED
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.ignoreUnfixed
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: VUL_OFFLINE_SCAN
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.offlineScan
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: VUL_JAVA_DB_REPOSITORY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.javaDbRepository
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: VUL_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.timeout
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: VUL_SKIP_FILES
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.skipFiles
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: VUL_SKIP_DIRS
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.skipDirs
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: HTTP_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.httpProxy
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: HTTPS_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.httpsProxy
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: NO_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.noProxy
+                  name: vul-operator-vul-config
+                  optional: true
+          image: ghcr.io/khulnasoft-lab/vul:0.35.0
+          imagePullPolicy: IfNotPresent
+          name: wordpress
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+              readonly: false
+            - mountPath: /tmp/scan
+              name: scanresult
+              readonly: false
+      dnsPolicy: ClusterFirst
+      initContainers:
+        - args:
+            - --cache-dir
+            - /tmp/vul/.cache
+            - image
+            - --download-db-only
+            - --db-repository
+            - ghcr.io/khulnasoft-lab/vul-db
+          command:
+            - vul
+          env:
+            - name: HTTP_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.httpProxy
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: HTTPS_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.httpsProxy
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: NO_PROXY
+              valueFrom:
+                configMapKeyRef:
+                  key: vul.noProxy
+                  name: vul-operator-vul-config
+                  optional: true
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  key: vul.githubToken
+                  name: vul-operator-vul-config
+                  optional: true
+          image: "ghcr.io/khulnasoft-lab/vul:0.35.0"
+          imagePullPolicy: IfNotPresent
+          name: <INIT-CONTAINER-NAME>
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp
+              readonly: false
+      restartPolicy: Never
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - emptyDir:
+            medium: ""
+          name: tmp
+        - emptyDir:
+            medium: ""
+          name: scanresult

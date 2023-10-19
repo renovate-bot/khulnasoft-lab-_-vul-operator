@@ -1,0 +1,76 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vul-operator
+  namespace: {{ include "vul-operator.namespace" . }}
+  labels: {{- include "vul-operator.labels" . | nindent 4 }}
+data:
+  {{- with .Values.vulOperator.scanJobTolerations }}
+  scanJob.tolerations: {{ . | toJson | quote }}
+  {{- end }}
+  {{- with .Values.nodeCollector.volumes }}
+  nodeCollector.volumes: {{ . | toJson | quote }}
+  {{- end }}
+  {{- with .Values.nodeCollector.volumeMounts }}
+  nodeCollector.volumeMounts: {{ . | toJson | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobAnnotations }}
+  scanJob.annotations: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobAutomountServiceAccountToken }}
+  scanJob.automountServiceAccountToken: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.skipInitContainers }}
+  scanJob.skipInitContainers: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.nodeCollector.excludeNodes }}
+  nodeCollector.excludeNodes: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobPodTemplateLabels }}
+  scanJob.podTemplateLabels: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.additionalReportLabels }}
+  report.additionalLabels: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobNodeSelector }}
+  scanJob.nodeSelector: {{ . | toJson | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobPodTemplatePodSecurityContext }}
+  scanJob.podTemplatePodSecurityContext: {{ . | toJson | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobPodTemplateContainerSecurityContext }}
+  scanJob.podTemplateContainerSecurityContext: {{ . | toJson | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobPodPriorityClassName }}
+  scanJob.podPriorityClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.scanJobCompressLogs }}
+  scanJob.compressLogs: {{ . | toJson | quote }}
+  {{- end }}
+  {{- if or .Values.operator.vulnerabilityScannerEnabled .Values.operator.exposedSecretScannerEnabled .Values.operator.scannerReportTTL }}
+  vulnerabilityReports.scanner: {{ .Values.vulOperator.vulnerabilityReportsPlugin | quote }}
+  {{- end }}
+  {{- if .Values.operator.configAuditScannerEnabled }}
+  configAuditReports.scanner: {{ .Values.vulOperator.configAuditReportsPlugin | quote }}
+  {{- end }}
+  {{- if .Values.operator.clusterComplianceEnabled }}
+  compliance.failEntriesLimit: {{ required ".Values.compliance.failEntriesLimit is required" .Values.compliance.failEntriesLimit | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.reportResourceLabels }}
+  report.resourceLabels: {{ . | quote }}
+  metrics.resourceLabelsPrefix: {{ $.Values.vulOperator.metricsResourceLabelsPrefix | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.reportRecordFailedChecksOnly }}
+  report.recordFailedChecksOnly: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vulOperator.skipResourceByLabels }}
+  skipResourceByLabels: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.operator.builtInVulServer }}
+  vul.serverURL: {{ printf "http://%s.%s:%s" .Values.vul.serverServiceName (include "vul-operator.namespace" .) "4954"  | quote }}
+  {{- end }}
+  node.collector.imageRef: "{{ include "global.imageRegistry" . | default .Values.nodeCollector.registry }}/{{ .Values.nodeCollector.repository }}:{{ .Values.nodeCollector.tag }}"
+  {{- with .Values.nodeCollector.imagePullSecret }}
+  node.collector.imagePullSecret: "{{ . }}"
+  {{- end }}

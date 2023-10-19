@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/khulnasoft-lab/starboard/pkg/ext"
-	"github.com/khulnasoft-lab/starboard/pkg/operator/etc"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -46,17 +46,15 @@ var InstallModePredicate = func(config etc.Config) (predicate.Predicate, error) 
 		if mode == etc.AllNamespaces && strings.TrimSpace(config.ExcludeNamespaces) != "" {
 			namespaces := strings.Split(config.ExcludeNamespaces, ",")
 			for _, namespace := range namespaces {
-				matches, err := filepath.Match(strings.TrimSpace(namespace), obj.GetNamespace())
+				matched, err := filepath.Match(strings.TrimSpace(namespace), obj.GetNamespace())
 				if err != nil {
-					// In case of error we'd assume the resource should be scanned
 					return true
 				}
-				if matches {
+				if matched {
 					return false
 				}
 			}
 		}
-
 		return true
 	}), nil
 }
@@ -77,14 +75,14 @@ var InNamespace = func(namespace string) predicate.Predicate {
 	})
 }
 
-// ManagedByStarboardOperator is a predicate.Predicate that returns true if the
-// specified client.Object is managed by Starboard.
+// ManagedByVulOperator is a predicate.Predicate that returns true if the
+// specified client.Object is managed by Vul-Operator.
 //
-// For example, pods controlled by jobs scheduled by Starboard Operator are
-// labeled with `app.kubernetes.io/managed-by=starboard`.
-var ManagedByStarboardOperator = predicate.NewPredicateFuncs(func(obj client.Object) bool {
-	if managedBy, ok := obj.GetLabels()[starboard.LabelK8SAppManagedBy]; ok {
-		return managedBy == starboard.AppStarboard
+// For example, pods controlled by jobs scheduled by Vul-Operator Operator are
+// labeled with `app.kubernetes.io/managed-by=vuloperator`.
+var ManagedByVulOperator = predicate.NewPredicateFuncs(func(obj client.Object) bool {
+	if managedBy, ok := obj.GetLabels()[vuloperator.LabelK8SAppManagedBy]; ok {
+		return managedBy == vuloperator.AppVulOperator
 	}
 	return false
 })
@@ -105,21 +103,14 @@ var JobHasAnyCondition = predicate.NewPredicateFuncs(func(obj client.Object) boo
 })
 
 var IsVulnerabilityReportScan = predicate.NewPredicateFuncs(func(obj client.Object) bool {
-	if _, ok := obj.GetLabels()[starboard.LabelVulnerabilityReportScanner]; ok {
+	if _, ok := obj.GetLabels()[vuloperator.LabelVulnerabilityReportScanner]; ok {
 		return true
 	}
 	return false
 })
 
-var IsConfigAuditReportScan = predicate.NewPredicateFuncs(func(obj client.Object) bool {
-	if _, ok := obj.GetLabels()[starboard.LabelConfigAuditReportScanner]; ok {
-		return true
-	}
-	return false
-})
-
-var IsKubeBenchReportScan = predicate.NewPredicateFuncs(func(obj client.Object) bool {
-	if _, ok := obj.GetLabels()[starboard.LabelKubeBenchReportScanner]; ok {
+var IsNodeInfoCollector = predicate.NewPredicateFuncs(func(obj client.Object) bool {
+	if _, ok := obj.GetLabels()[vuloperator.LabelNodeInfoCollector]; ok {
 		return true
 	}
 	return false
@@ -131,6 +122,25 @@ var IsLinuxNode = predicate.NewPredicateFuncs(func(obj client.Object) bool {
 	}
 	return false
 })
+
+var ExcludeNode = func(config vuloperator.ConfigData) (predicate.Predicate, error) {
+	excludeNodes, err := config.GetNodeCollectorExcludeNodes()
+	if err != nil {
+		return nil, err
+	}
+	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		if len(excludeNodes) == 0 {
+			return false
+		}
+		var matchingLabels int
+		for key, val := range excludeNodes {
+			if lVal, ok := obj.GetLabels()[key]; ok && lVal == val {
+				matchingLabels++
+			}
+		}
+		return matchingLabels == len(excludeNodes)
+	}), nil
+}
 
 // IsLeaderElectionResource returns true for resources used in leader election, means resources
 // annotated with resourcelock.LeaderElectionRecordAnnotationKey.

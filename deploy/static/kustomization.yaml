@@ -1,6 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
 resources:
-  - starboard.yaml
+  - vul-operator.yaml
 images:
-  - name: docker.io/khulnasoft/starboard-operator
-    newName: docker.io/khulnasoft/starboard-operator
+  - name: ghcr.io/khulnasoft-lab/vul-operator
+    newName: khulnasoft-lab/vul-operator
     newTag: dev

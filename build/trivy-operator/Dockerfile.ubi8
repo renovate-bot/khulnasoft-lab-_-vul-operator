@@ -1,0 +1,10 @@
+FROM registry.access.redhat.com/ubi8/ubi-minimal:8.5
+
+RUN microdnf install shadow-utils
+RUN useradd -u 10000 vuloperator
+WORKDIR /opt/bin/
+COPY vul-operator /usr/local/bin/vul-operator
+
+USER vuloperator
+
+ENTRYPOINT ["vul-operator"]

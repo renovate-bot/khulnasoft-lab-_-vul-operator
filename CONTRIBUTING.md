@@ -1,6 +1,6 @@
 # Contributing
 
-These guidelines will help you get started with the Starboard project.
+These guidelines will help you get started with the Vul-operator project.
 
 ## Table of Contents
 
@@ -9,13 +9,13 @@ These guidelines will help you get started with the Starboard project.
   - [Pull Requests](#pull-requests)
 - [Set up your Development Environment](#set-up-your-development-environment)
 - [Build Binaries](#build-binaries)
-- [Run Tests](#run-tests)
-  - [Run Unit Tests](#run-unit-tests)
+- [Testing](#testing)
+  - [Run Tests](#run-tests)
   - [Run Integration Tests](#run-integration-tests)
   - [Cove Coverage](#code-coverage)
 - [Custom Resource Definitions](#custom-resource-definitions)
-  - [Generate Code](#generate-code)
-- [Test Starboard Operator](#test-starboard-operator)
+  - [Generating code and manifests](#generating-code-and-manifests)
+- [Test Vul Operator](#test-vul-operator)
   - [In Cluster](#in-cluster)
   - [Out of Cluster](#out-of-cluster)
 - [Update Static YAML Manifests](#update-static-yaml-manifests)
@@ -33,7 +33,7 @@ These guidelines will help you get started with the Starboard project.
 - Please spend a minimal amount of time giving due diligence to existing issues or discussions. Your topic might be a duplicate. If it is, please add your comment to the existing one.
 - Please give your issue or discussion a meaningful title that will be clear for future users.
 - The issue should clearly explain the reason for opening, the proposal if you have any, and any relevant technical information.
-- For technical questions, please explain in detail what you were trying to do, provide an error message if applicable, and your versions of Starboard and your environment.
+- For technical questions, please explain in detail what you were trying to do, provide an error message if applicable, and your versions of Vul-Operator and your environment.
 
 ### Pull Requests
 
@@ -43,9 +43,10 @@ These guidelines will help you get started with the Starboard project.
 - There's no need to add or tag reviewers, if your PR is left unattended for too long, you can add a comment to bring it up to attention, optionally "@" mention one of the maintainers that was involved with the issue.
 - If a reviewer commented on your code or asked for changes, please remember to mark the discussion as resolved after you address it and re-request a review.
 - When addressing comments, try to fix each suggestion in a separate commit.
-- Tests are not required at this point as Starboard is evolving fast, but if you can include tests that will be appreciated.
+- Tests are not required at this point as Vul-Operator is evolving fast, but if you can include tests that will be appreciated.
 
 #### Conventional Commits
+
 It is not that strict, but we use the [Conventional commits](https://www.conventionalcommits.org) in this repository.
 Each commit message doesn't have to follow conventions as long as it is clear and descriptive since it will be squashed and merged.
 
@@ -53,14 +54,15 @@ Each commit message doesn't have to follow conventions as long as it is clear an
 
 1. Install Go
 
-   The project requires [Go 1.17][go-download] or later. We also assume that you're familiar with
+   The project requires [Go 1.19][go-download] or later. We also assume that you're familiar with
    Go's [GOPATH workspace][go-code] convention, and have the appropriate environment variables set.
 2. Get the source code:
 
    ```
-   git clone git@github.com:khulnasoft-lab/starboard.git
-   cd starboard
+   git clone git@github.com:khulnasoft-lab/vul-operator.git
+   cd vul-operator
    ```
+
 3. Access to a Kubernetes cluster. We assume that you're using a [KIND][kind] cluster. To create a single-node KIND
    cluster, run:
 
@@ -68,48 +70,54 @@ Each commit message doesn't have to follow conventions as long as it is clear an
    kind create cluster
    ```
 
+Note: Some of our tests performs integration testing by starting a local
+control plane using
+[envtest](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest).
+If you only run test using the Magefile
+(`mage test:unit`), no additional installation is required. But if you want to
+run some of these integration tests using `go test` or from your IDE, you'll
+have to
+[install kubebuiler-tools](https://book.kubebuilder.io/reference/envtest.html#installation).
+[install magefile](https://magefile.org)  or use `go run mage.go <goal>` 
+
 ## Build Binaries
 
-| Binary                   | Image                                          | Description                                                   |
-|--------------------------|------------------------------------------------|---------------------------------------------------------------|
-| `starboard`              | `docker.io/khulnasoft/starboard:dev`              | Starboard command-line interface                              |
-| `starboard-operator`     | `docker.io/khulnasoft/starboard-operator:dev`     | Starboard Operator                                            |
-| `starboard-scanner-khulnasoft` | `docker.io/khulnasoft/starboard-scanner-khulnasoft:dev` | Starboard plugin to integrate with Khulnasoft vulnerability scanner |
+| Binary               | Image                                          | Description                                                   |
+|----------------------|------------------------------------------------|---------------------------------------------------------------|
+| `vul-operator`     | `ghcr.io/khulnasoft-lab/vul-operator:dev`         | Vul Operator                                                |
 
-To build all Starboard binaries, run:
+To build all Vul-operator binary, run:
 
 ```
-make
+mage build:all
 ```
 
 This uses the `go build` command and builds binaries in the `./bin` directory.
 
-To build all Starboard binaries into Docker images, run:
+To build all Vul-operator binary into Docker images, run:
 
 ```
-make docker-build
+mage build:docker
 ```
 
 To load Docker images into your KIND cluster, run:
 
 ```
-kind load docker-image khulnasoft/starboard:dev
-kind load docker-image khulnasoft/starboard-operator:dev
-kind load docker-image khulnasoft/starboard-scanner-khulnasoft:dev
+mage build:kindloadimages
 ```
 
-## Run Tests
+## Testing
 
 We generally require tests to be added for all, but the most trivial of changes. However, unit tests alone don't
-provide guarantees about the behaviour of Starboard. To verify that each Go module correctly interacts with its
+provide guarantees about the behaviour of Vul-operator. To verify that each Go module correctly interacts with its
 collaborators, more coarse grained integration tests might be required.
 
-### Run Unit Tests
+### Run unit Tests
 
-To run all unit tests with code coverage enabled, run:
+To run all tests with code coverage enabled, run:
 
 ```
-make unit-tests
+mage test:unit
 ```
 
 To open the test coverage report in your web browser, run:
@@ -118,39 +126,77 @@ To open the test coverage report in your web browser, run:
 go tool cover -html=coverage.txt
 ```
 
+### Run operator envtest
+
+The operator envtest spin us partial k8s components (api-server, etcd) and test controllers for reousce, workload, ttl, rbac and more
+
+```
+mage test:envtest
+```
+
 ### Run Integration Tests
 
 The integration tests assumes that you have a working kubernetes cluster (e.g KIND cluster) and `KUBECONFIG` environment
 variable is pointing to that cluster configuration file. For example:
 
-```
+```shell
 export KUBECONFIG=~/.kube/config
-```
-
-There are separate integration tests for Starboard CLI and for Starboard Operator. The tests may leave the cluster in a
-dirty state, so running one test after the other may cause spurious failures.
-
-To run the integration tests for Starboard CLI with code coverage enabled, run:
-
-```
-make itests-starboard
 ```
 
 To open the test coverage report in your web browser, run:
 
-```
-go tool cover -html=itest/starboard/coverage.txt
+```shell
+go tool cover -html=itest/vul-operator/coverage.txt
 ```
 
-To run the integration tests for Starboard Operator and view the coverage report, first do the
-[prerequisite steps](#prerequisites), and then run:
+To run the integration tests for Vul-operator Operator and view the coverage report, first do the
+[pre-requisite steps](#set-up-your-development-environment), and then run:
 
 ```
-OPERATOR_NAMESPACE=starboard-system \
+OPERATOR_NAMESPACE=vul-system \
   OPERATOR_TARGET_NAMESPACES=default \
   OPERATOR_LOG_DEV_MODE=true \
-  make itests-starboard-operator
-go tool cover -html=itest/starboard-operator/coverage.txt
+  mage test:integration
+go tool cover -html=itest/vul-operator/coverage.txt
+```
+
+### Run  End to End Tests
+
+The end 2 end tests assumes that you have a working kubernetes cluster (e.g KIND cluster) and `KUBECONFIG` environment
+variable is pointing to that cluster configuration file. For example:
+
+```shell
+export KUBECONFIG=~/.kube/config
+```
+
+- install kuttl via krew [Install Guide](https://kuttl.dev/docs/cli.html)
+
+```shell
+kubectl krew install kuttl
+```
+
+- Run cluster infra assessment end to end test via node collector
+
+```shell
+kubectl kuttl test --start-kind=false  --config tests/config/node-collector.yaml
+```
+
+- Run vulnerability report generation via running vul with image mode
+
+```shell
+kubectl kuttl test --start-kind=false  --config tests/config/image-mode.yaml
+```
+
+- Run vulnerability report generation via running vul with filesystem mode
+
+```shell
+kubectl kuttl test --start-kind=false  --config tests/config/fs-mode.yaml
+```
+
+- Run vulnerability report generation via running vul with client/server mode
+
+```shell
+kubectl kuttl test --start-kind=false  --config tests/config/client-server.yaml
 ```
 
 ### Code Coverage
@@ -161,37 +207,53 @@ merge the reports automatically while maintaining the original upload context as
 
 ## Custom Resource Definitions
 
-### Generate Code
+### Generating code and manifests
 
-Code generators are used a lot in the implementation of native Kubernetes resources, and we're using the very same
-generators here for custom security resources. This project follows the patterns of
-[k8s.io/sample-controller][k8s-sample-controller], which is a blueprint for many controllers built in Kubernetes itself.
+This project uses [`controller-gen`](https://book.kubebuilder.io/reference/controller-gen.html)
+to generate code and Kubernetes manifests from source-code and code markers.
+We currently generate:
 
-The code generation starts with:
+- Custom Resource Definitions (CRD) for CRDs defined in vul-operator
+- ClusterRole that must be bound to the vul-operator serviceaccount to allow it to function
+- Mandatory DeepCopy functions for a Go struct representing a CRD
 
-```
-go mod vendor
-export GOPATH="$(go env GOPATH)"
-./hack/update-codegen.sh
-```
+This means that you should not try to modify any of these files directly, but instead change
+the code and code markers. Our MageFile contains a target to ensure that all generated files
+are up-to-date: So after doing modifications in code, affecting CRDs/ClusterRole, you should
+run `mage generate:all` to regenerate everything.
 
-In addition, there is a second script called `./hack/verify-codegen.sh`. This script calls the
-`./hack/update-codegen.sh` script and checks whether anything changed, and then it terminates with a nonzero return
-code if any of the generated files is not up-to-date. We're running it as a step in the CI workflow.
+Our CI will verify that all generated is up-to-date by running `mage generate:verify`.
 
-## Test Starboard Operator
+Any change to the CRD structs, including nested structs, will probably modify the CRD.
+This is also true for Go docs, as field/type doc becomes descriptions in CRDs.
 
-You can deploy the operator in the `starboard-system` namespace and configure it to watch the `default` namespace.
+When it comes to code markers added to the code, run `controller-gen -h` for detailed
+reference (add more `h`'s to the command to get more details)
+or the [markers documentation](https://book.kubebuilder.io/reference/markers.html) for
+an overview.
+
+We are trying to place the [RBAC markers](https://book.kubebuilder.io/reference/markers/rbac.html)
+close to the code that drives the requirement for permissions. This could lead to the same,
+or similar, RBAC markers multiple places in the code. This how we want it to be, since it will
+allow us to track RBAC changes to code changes. Any permission granted multiple times by markers
+will be deduplicated by controller-gen.
+
+## Test Vul Operator
+
+You can deploy the operator in the `vul-system` namespace and configure it to watch the `default` namespace.
 In OLM terms such install mode is called *SingleNamespace*. The *SingleNamespace* mode is good to get started with a
 basic development workflow. For other install modes see [Operator Multitenancy with OperatorGroups][olm-operator-groups].
 
 ### In cluster
 
 1. Build the operator binary into the Docker image and load it from your host into KIND cluster nodes:
+
    ```
-   make docker-build-starboard-operator && kind load docker-image khulnasoft/starboard-operator:dev
+   mage build:docker && kind load docker-image khulnasoft-lab/vul-operator:dev
    ```
-2. Create the `starboard-operator` Deployment in the `starboard-system` namespace to run the operator's container:
+
+2. Create the `vul-operator` Deployment in the `vul-system` namespace to run the operator's container:
+
    ```
    kubectl create -k deploy/static
    ```
@@ -205,61 +267,69 @@ kubectl delete -k deploy/static
 ### Out of cluster
 
 1. Deploy the operator in cluster:
+
    ```
-   kubectl apply -f deploy/static/starboard.yaml
+   kubectl apply -f deploy/static/vul-operator.yaml
    ```
+
 2. Scale the operator down to zero replicas:
+
    ```
-   kubectl scale deployment starboard-operator \
-     -n starboard-system \
+   kubectl scale deployment vul-operator \
+     -n vul-system \
      --replicas 0
    ```
+
 3. Delete pending scan jobs with:
+
    ```
-   kubectl delete jobs -n starboard-system --all
+   kubectl delete jobs -n vul-system --all
    ```
+
 4. Run the main method of the operator program:
+
    ```
-   OPERATOR_NAMESPACE=starboard-system \
+   OPERATOR_NAMESPACE=vul-system \
      OPERATOR_TARGET_NAMESPACES=default \
      OPERATOR_LOG_DEV_MODE=true \
-     OPERATOR_CIS_KUBERNETES_BENCHMARK_ENABLED=true \
      OPERATOR_VULNERABILITY_SCANNER_ENABLED=true \
      OPERATOR_VULNERABILITY_SCANNER_SCAN_ONLY_CURRENT_REVISIONS=false \
-     OPERATOR_CONFIG_AUDIT_SCANNER_ENABLED=false \
+     OPERATOR_CONFIG_AUDIT_SCANNER_ENABLED=true \
+     OPERATOR_RBAC_ASSESSMENT_SCANNER_ENABLED=true \
      OPERATOR_CONFIG_AUDIT_SCANNER_SCAN_ONLY_CURRENT_REVISIONS=false \
-     OPERATOR_CONFIG_AUDIT_SCANNER_BUILTIN=true \
      OPERATOR_VULNERABILITY_SCANNER_REPORT_TTL="" \
      OPERATOR_BATCH_DELETE_LIMIT=3 \
      OPERATOR_BATCH_DELETE_DELAY="30s" \
-     go run cmd/starboard-operator/main.go
+     go run cmd/vul-operator/main.go
    ```
 
 You can uninstall the operator with:
 
 ```
-kubectl delete -f deploy/static/starboard.yaml
+kubectl delete -f deploy/static/vul-operator.yaml
 ```
 
 ## Update Static YAML Manifests
 
-```
-mkdir -p $TMPDIR/starboard-helm-template
-```
+We consider the Helm chart to be the master for deploying vul-operator.
+Since some prefer to not use Helm, we also provide static resources to
+install the operator.
 
-```
-helm template starboard-operator ./deploy/helm \
-  --namespace starboard-system --create-namespace \
-  --set="targetNamespaces=default" \
-  --set="managedBy=kubectl" \
-  --output-dir=$TMPDIR/starboard-helm-template
-```
+To avoid maintaining resources in multiple places, we have a created a script
+to (re)generate the static resources from the Helm chart.
 
-```
-cp $TMPDIR/starboard-helm-template/starboard-operator/templates/rbac.yaml deploy/static/02-starboard-operator.rbac.yaml
-cp $TMPDIR/starboard-helm-template/starboard-operator/templates/config.yaml deploy/static/03-starboard-operator.config.yaml
-cp $TMPDIR/starboard-helm-template/starboard-operator/templates/deployment.yaml deploy/static/04-starboard-operator.deployment.yaml
-```
+So if modifying the operator resources, please do so by modifying the Helm
+chart, then run `mage generate:manifests` to ensure the static
+resources are up-to-date.
+
+## Update helm docs
+
+We consider the Helm chart to be the master for deploying vul-operator.
+Since some prefer to not use Helm, we also provide helm config documentation to
+install the operator.
+
+So if modifying the operator helm params, please do so by modifying the Helm
+chart, then run `mage generate:docs` to ensure the helm docs are up-to-date.
 
 ## Operator Lifecycle Manager (OLM)
 
@@ -282,7 +352,7 @@ chmod +x install.sh
 
 ### Build the Catalog Image
 
-The Starboard Operator metadata is formatted in *packagemanifest* layout, so you need to place it in the directory
+The Vul Operator metadata is formatted in *packagemanifest* layout, so you need to place it in the directory
 structure of the [community-operators] repository.
 
 ```
@@ -290,13 +360,13 @@ git clone git@github.com:k8s-operatorhub/community-operators.git
 cd community-operators
 ```
 
-Build the catalog image for OLM containing just Starboard Operator with a Dockerfile like this:
+Build the catalog image for OLM containing just Vul Operator with a Dockerfile like this:
 
 ```
-cat << EOF > starboard.Dockerfile
+cat << EOF > vul-operator.Dockerfile
 FROM quay.io/operator-framework/upstream-registry-builder as builder
 
-COPY operators/starboard-operator manifests
+COPY operators/vul-operator manifests
 RUN /bin/initializer -o ./bundles.db
 
 FROM scratch
@@ -310,31 +380,31 @@ CMD ["--database", "bundles.db"]
 EOF
 ```
 
-Place the `starboard.Dockerfile` in the top-level directory of your cloned copy of the [community-operators] repository,
+Place the `vul-operator.Dockerfile` in the top-level directory of your cloned copy of the [community-operators] repository,
 build it and push to a registry from where you can download it to your Kubernetes cluster:
 
 ```
-docker image build -f starboard.Dockerfile -t docker.io/<your account>/starboard-catalog:dev .
-docker image push docker.io/<your account>/starboard-catalog:dev
+docker image build -f vul-operator.Dockerfile -t docker.io/<your account>/vul-operator-catalog:dev .
+docker image push docker.io/<your account>/vul-operator-catalog:dev
 ```
 
 ### Register the Catalog Image
 
 Create a CatalogSource instance in the `olm` namespace to reference in the Operator catalog image that contains the
-Starboard Operator:
+Vul Operator:
 
 ```
 cat << EOF | kubectl apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
-  name: starboard-catalog
+  name: vul-operator-catalog
   namespace: olm
 spec:
-  publisher: Starboard Maintainers
-  displayName: Starboard Catalog
+  publisher: vul-operator Maintainers
+  displayName: vul-operator Catalog
   sourceType: grpc
-  image: docker.io/<your account>/starboard-catalog:dev
+  image: docker.io/<your account>/vul-operator-catalog:dev
 EOF
 ```
 
@@ -344,17 +414,17 @@ You can delete the default catalog that OLM ships with to avoid duplicate entrie
 kubectl delete catalogsource operatorhubio-catalog -n olm
 ```
 
-Inspect the list of loaded packagemanifests on the system with the following command to filter for the Starboard Operator:
+Inspect the list of loaded package manifests on the system with the following command to filter for the Vul Operator:
 
 ```console
 $ kubectl get packagemanifests
 NAME                 CATALOG             AGE
-starboard-operator   Starboard Catalog   97s
+vul-operator   vul-operator Catalog   97s
 ```
 
-If the Starboard Operator appears in this list, the catalog was successfully parsed and it is now available to install.
-Follow the installation instructions for [OLM][starboard-install-olm]. Make sure that the Subscription's `spec.source`
-property refers to the `starboard-catalog` source instead of `operatorhubio-catalog`.
+If the Vul Operator appears in this list, the catalog was successfully parsed and it is now available to install.
+Follow the installation instructions for [OLM][vul-operator-install-olm]. Make sure that the Subscription's `spec.source`
+property refers to the `vul-operator-catalog` source instead of `operatorhubio-catalog`.
 
 You can find more details about testing Operators with Operator Framework [here][olm-testing-operators].
 
@@ -366,6 +436,5 @@ You can find more details about testing Operators with Operator Framework [here]
 [Operator Lifecycle Manager]: https://github.com/operator-framework/operator-lifecycle-manager
 [community-operators]: https://github.com/k8s-operatorhub/community-operators
 [olm-operator-groups]: https://github.com/operator-framework/operator-lifecycle-manager/blob/master/doc/design/operatorgroups.md
-[k8s-sample-controller]: https://github.com/kubernetes/sample-controller
-[starboard-install-olm]: https://khulnasoft-lab.github.io/starboard/latest/operator/installation/olm
+[vul-operator-install-olm]: https://khulnasoft-lab.github.io/vul-operator/latest/operator/installation/olm
 [olm-testing-operators]: https://github.com/operator-framework/community-operators/blob/master/docs/testing-operators.md

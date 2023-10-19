@@ -1,0 +1,8207 @@
+package vul_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/khulnasoft-lab/vul-operator/pkg/docker"
+
+	dbtypes "github.com/khulnasoft-lab/vul-db/pkg/types"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
+	"github.com/khulnasoft-lab/vul-operator/pkg/plugins/vul"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
+	bz "github.com/dsnet/compress/bzip2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/batch/v1"
+	"k8s.io/api/batch/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
+
+var (
+	fixedTime  = time.Now()
+	fixedClock = ext.NewFixedClock(fixedTime)
+)
+
+func TestConfig_GetImageRef(t *testing.T) {
+	testCases := []struct {
+		name             string
+		configData       vul.Config
+		expectedError    string
+		expectedImageRef string
+	}{
+		{
+			name:          "Should return error",
+			configData:    vul.Config{PluginConfig: vuloperator.PluginConfig{}},
+			expectedError: "property vul.repository not set",
+		},
+		{
+			name: "Should return error",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.tag": "0.8.0",
+				},
+			}},
+			expectedError: "property vul.repository not set",
+		},
+		{
+			name: "Should return error",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.repository": "gcr.io/khulnasoft-lab/vul",
+				},
+			}},
+			expectedError: "property vul.tag not set",
+		},
+		{
+			name: "Should return image reference from config data",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.repository": "gcr.io/khulnasoft-lab/vul",
+					"vul.tag":        "0.8.0",
+				},
+			}},
+			expectedImageRef: "gcr.io/khulnasoft-lab/vul:0.8.0",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			imageRef, err := tc.configData.GetImageRef()
+			if tc.expectedError != "" {
+				require.EqualError(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedImageRef, imageRef)
+			}
+		})
+	}
+}
+
+func TestConfig_GetAdditionalVulnerabilityReportFields(t *testing.T) {
+	testCases := []struct {
+		name             string
+		configData       vul.Config
+		additionalFields vul.AdditionalFields
+	}{
+		{
+			name:             "no additional fields are set",
+			configData:       vul.Config{PluginConfig: vuloperator.PluginConfig{}},
+			additionalFields: vul.AdditionalFields{},
+		},
+		{
+			name: "all additional fields are set",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.additionalVulnerabilityReportFields": "PackageType,PkgPath,Class,Target,Links,Description,CVSS",
+				},
+			}},
+			additionalFields: vul.AdditionalFields{Description: true, Links: true, CVSS: true, Class: true, PackageType: true, PkgPath: true, Target: true},
+		},
+		{
+			name: "some additional fields are set",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.additionalVulnerabilityReportFields": "PackageType,Target,Links,CVSS",
+				},
+			}},
+			additionalFields: vul.AdditionalFields{Links: true, CVSS: true, PackageType: true, Target: true},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			addFields := tc.configData.GetAdditionalVulnerabilityReportFields()
+			assert.True(t, addFields.Description == tc.additionalFields.Description)
+			assert.True(t, addFields.CVSS == tc.additionalFields.CVSS)
+			assert.True(t, addFields.Target == tc.additionalFields.Target)
+			assert.True(t, addFields.PackageType == tc.additionalFields.PackageType)
+			assert.True(t, addFields.Class == tc.additionalFields.Class)
+			assert.True(t, addFields.Links == tc.additionalFields.Links)
+		})
+	}
+}
+
+func TestConfig_GetMode(t *testing.T) {
+	testCases := []struct {
+		name          string
+		configData    vul.Config
+		expectedError string
+		expectedMode  vul.Mode
+	}{
+		{
+			name: "Should return Standalone",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.mode": string(vul.Standalone),
+				},
+			}},
+			expectedMode: vul.Standalone,
+		},
+		{
+			name: "Should return ClientServer",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.mode": string(vul.ClientServer),
+				},
+			}},
+			expectedMode: vul.ClientServer,
+		},
+		{
+			name:          "Should return error when value is not set",
+			configData:    vul.Config{PluginConfig: vuloperator.PluginConfig{}},
+			expectedError: "property vul.mode not set",
+		},
+		{
+			name: "Should return error when value is not allowed",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.mode": "P2P",
+				},
+			}},
+			expectedError: "invalid value (P2P) of vul.mode; allowed values (Standalone, ClientServer)",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode, err := tc.configData.GetMode()
+			if tc.expectedError != "" {
+				require.EqualError(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedMode, mode)
+			}
+		})
+	}
+}
+
+func TestGetSlow(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configData vul.Config
+		want       bool
+	}{
+		{
+			name: "slow param set to true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.slow": "true",
+				},
+			}},
+			want: true,
+		},
+		{
+			name: "slow param set to false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.slow": "false",
+				},
+			}},
+			want: false,
+		},
+		{
+			name: "slow param set to no valid value",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.slow": "false2",
+				},
+			}},
+			want: true,
+		},
+		{
+			name: "slow param set to no  value",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{},
+			}},
+			want: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.configData.GetSlow()
+			assert.Equal(t, got, tc.want)
+
+		})
+	}
+}
+func TestConfig_GetCommand(t *testing.T) {
+	testCases := []struct {
+		name            string
+		configData      vul.Config
+		expectedError   string
+		expectedCommand vul.Command
+	}{
+		{
+			name: "Should return image",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.command": "image",
+				},
+			}},
+			expectedCommand: vul.Image,
+		},
+		{
+			name: "Should return image when value is not set",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{},
+			}},
+			expectedCommand: vul.Image,
+		},
+		{
+			name: "Should return filesystem",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.command": "filesystem",
+				},
+			}},
+			expectedCommand: vul.Filesystem,
+		},
+		{
+			name: "Should return rootfs",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.command": "rootfs",
+				},
+			}},
+			expectedCommand: vul.Rootfs,
+		},
+		{
+			name: "Should return error when value is not allowed",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.command": "ls",
+				},
+			}},
+			expectedError: "invalid value (ls) of vul.command; allowed values (image, filesystem, rootfs)",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			command, err := tc.configData.GetCommand()
+			if tc.expectedError != "" {
+				require.EqualError(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedCommand, command)
+			}
+		})
+	}
+}
+
+func TestVulnType(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configData vul.Config
+		want       string
+	}{
+		{
+			name: "valid vuln type os",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.vulnType": "os",
+				},
+			}},
+			want: "os",
+		},
+		{
+			name: "valid vuln type library",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.vulnType": "library",
+				},
+			}},
+			want: "library",
+		},
+		{
+			name: "empty vuln type",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.vulnType": "",
+				},
+			}},
+			want: "",
+		},
+		{
+			name: "non valid vuln type",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.vulnType": "aaa",
+				},
+			}},
+			want: "",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.configData.GetVulnType()
+			assert.Equal(t, got, tc.want)
+
+		})
+	}
+}
+
+func TestConfig_GetResourceRequirements(t *testing.T) {
+	testCases := []struct {
+		name                 string
+		config               vul.Config
+		expectedError        string
+		expectedRequirements corev1.ResourceRequirements
+	}{
+		{
+			name: "Should return empty requirements by default",
+			config: vul.Config{
+				PluginConfig: vuloperator.PluginConfig{},
+			},
+			expectedError: "",
+			expectedRequirements: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{},
+				Limits:   corev1.ResourceList{},
+			},
+		},
+		{
+			name: "Should return configured resource requirement",
+			config: vul.Config{
+				PluginConfig: vuloperator.PluginConfig{
+					Data: map[string]string{
+						"vul.dbRepository":              vul.DefaultDBRepository,
+						"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+						"vul.resources.requests.cpu":    "800m",
+						"vul.resources.requests.memory": "200M",
+						"vul.resources.limits.cpu":      "600m",
+						"vul.resources.limits.memory":   "700M",
+					},
+				},
+			},
+			expectedError: "",
+			expectedRequirements: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("800m"),
+					corev1.ResourceMemory: resource.MustParse("200M"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("600m"),
+					corev1.ResourceMemory: resource.MustParse("700M"),
+				},
+			},
+		},
+		{
+			name: "Should return error if resource is not parseable",
+			config: vul.Config{
+				PluginConfig: vuloperator.PluginConfig{
+					Data: map[string]string{
+						"vul.resources.requests.cpu": "roughly 100",
+					},
+				},
+			},
+			expectedError: "parsing resource definition vul.resources.requests.cpu: roughly 100 quantities must match the regular expression '^([+-]?[0-9.]+)([eEinumkKMGTP]*[-+]?[0-9]*)$'",
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resourceRequirement, err := tc.config.GetResourceRequirements()
+			if tc.expectedError != "" {
+				require.EqualError(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedRequirements, resourceRequirement, tc.name)
+			}
+		})
+	}
+}
+
+func TestConfig_IgnoreFileExists(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput bool
+	}{
+		{
+			name: "Should return false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+				},
+			}},
+			expectedOutput: false,
+		},
+		{
+			name: "Should return true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+					"vul.ignoreFile": `# Accept the risk
+CVE-2018-14618
+
+# No impact in our settings
+CVE-2019-1543`,
+				},
+			}},
+			expectedOutput: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			exists := tc.configData.IgnoreFileExists()
+			assert.Equal(t, tc.expectedOutput, exists)
+		})
+	}
+}
+
+func TestConfig_IgnoreUnfixed(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput bool
+	}{
+		{
+			name: "Should return false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+				},
+			}},
+			expectedOutput: false,
+		},
+		{
+			name: "Should return true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo":                 "bar",
+					"vul.ignoreUnfixed": "true",
+				},
+			}},
+			expectedOutput: true,
+		},
+		{
+			name: "Should return false when set it as false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo":                 "bar",
+					"vul.ignoreUnfixed": "false",
+				},
+			}},
+			expectedOutput: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			exists := tc.configData.IgnoreUnfixed()
+			assert.Equal(t, tc.expectedOutput, exists)
+		})
+	}
+}
+
+func TestConfig_OfflineScan(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput bool
+	}{
+		{
+			name: "Should return false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+				},
+			}},
+			expectedOutput: false,
+		},
+		{
+			name: "Should return true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo":               "bar",
+					"vul.offlineScan": "true",
+				},
+			}},
+			expectedOutput: true,
+		},
+		{
+			name: "Should return false when set it as false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo":               "bar",
+					"vul.offlineScan": "false",
+				},
+			}},
+			expectedOutput: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			exists := tc.configData.OfflineScan()
+			assert.Equal(t, tc.expectedOutput, exists)
+		})
+	}
+}
+
+func TestConfig_dbRepositoryInsecure(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput bool
+	}{
+		{
+			name: "good value Should return false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.dbRepositoryInsecure": "false",
+				},
+			}},
+			expectedOutput: false,
+		},
+		{
+			name: "good value Should return true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.dbRepositoryInsecure": "true",
+				},
+			}},
+			expectedOutput: true,
+		},
+		{
+			name: "bad value Should return false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.dbRepositoryInsecure": "true1",
+				},
+			}},
+			expectedOutput: false,
+		},
+		{
+			name: "no value Should return false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{},
+			}},
+			expectedOutput: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			exists := tc.configData.GetDBRepositoryInsecure()
+			assert.Equal(t, tc.expectedOutput, exists)
+		})
+	}
+}
+
+func TestConfig_GetInsecureRegistries(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput map[string]bool
+	}{
+		{
+			name: "Should return nil map when there is no key with vul.insecureRegistry. prefix",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+				},
+			}},
+			expectedOutput: make(map[string]bool),
+		},
+		{
+			name: "Should return insecure registries in map",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo":                                "bar",
+					"vul.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+					"vul.insecureRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
+				},
+			}},
+			expectedOutput: map[string]bool{
+				"poc.myregistry.harbor.com.pl": true,
+				"qa.registry.khulnasoft.com":      true,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			insecureRegistries := tc.configData.GetInsecureRegistries()
+			assert.Equal(t, tc.expectedOutput, insecureRegistries)
+		})
+	}
+}
+
+func TestConfig_GetNonSSLRegistries(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput map[string]bool
+	}{
+		{
+			name: "Should return nil map when there is no key with vul.nonSslRegistry. prefix",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+				},
+			}},
+			expectedOutput: make(map[string]bool),
+		},
+		{
+			name: "Should return insecure registries in map",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo":                              "bar",
+					"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+					"vul.nonSslRegistry.qaRegistry":  "qa.registry.khulnasoft.com",
+				},
+			}},
+			expectedOutput: map[string]bool{
+				"poc.myregistry.harbor.com.pl": true,
+				"qa.registry.khulnasoft.com":      true,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			nonSslRegistries := tc.configData.GetNonSSLRegistries()
+			assert.Equal(t, tc.expectedOutput, nonSslRegistries)
+		})
+	}
+}
+
+func TestConfig_GetMirrors(t *testing.T) {
+	testCases := []struct {
+		name           string
+		configData     vul.Config
+		expectedOutput map[string]string
+	}{
+		{
+			name: "Should return empty map when there is no key with vul.mirrors.registry. prefix",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"foo": "bar",
+				},
+			}},
+			expectedOutput: make(map[string]string),
+		},
+		{
+			name: "Should return mirrors in a map",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.registry.mirror.docker.io": "mirror.io",
+				},
+			}},
+			expectedOutput: map[string]string{"docker.io": "mirror.io"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expectedOutput, tc.configData.GetMirrors())
+		})
+	}
+}
+
+func TestPlugin_Init(t *testing.T) {
+
+	t.Run("Should create the default config", func(t *testing.T) {
+		testClient := fake.NewClientBuilder().WithObjects().Build()
+		or := kube.NewObjectResolver(testClient, &kube.CompatibleObjectMapper{})
+		instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &or)
+
+		pluginContext := vuloperator.NewPluginContext().
+			WithName(vul.Plugin).
+			WithNamespace("vuloperator-ns").
+			WithServiceAccountName("vuloperator-sa").
+			WithClient(testClient).
+			Get()
+		err := instance.Init(pluginContext)
+		require.NoError(t, err)
+
+		var cm corev1.ConfigMap
+		err = testClient.Get(context.Background(), types.NamespacedName{
+			Namespace: "vuloperator-ns",
+			Name:      "vul-operator-vul-config",
+		}, &cm)
+		require.NoError(t, err)
+		assert.Equal(t, corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "vul-operator-vul-config",
+				Namespace: "vuloperator-ns",
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "vuloperator",
+				},
+				ResourceVersion: "1",
+			},
+			Data: map[string]string{
+				"vul.repository":                vul.DefaultImageRepository,
+				"vul.tag":                       "0.45.1",
+				"vul.severity":                  vul.DefaultSeverity,
+				"vul.slow":                      "true",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.timeout":                   "5m0s",
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.useBuiltinRegoPolicies":    "true",
+				"vul.supportedConfigAuditKinds": vul.SupportedConfigAuditKinds,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+		}, cm)
+	})
+
+	t.Run("Should not overwrite existing config", func(t *testing.T) {
+		testClient := fake.NewClientBuilder().WithObjects(
+			&corev1.ConfigMap{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: "v1",
+					Kind:       "ConfigMap",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "vul-operator-vul-config",
+					Namespace:       "vuloperator-ns",
+					ResourceVersion: "1",
+				},
+				Data: map[string]string{
+					"vul.repository": "gcr.io/khulnasoft-lab/vul",
+					"vul.tag":        "0.35.0",
+					"vul.severity":   vul.DefaultSeverity,
+					"vul.mode":       string(vul.Standalone),
+				},
+			}).Build()
+		resolver := kube.NewObjectResolver(testClient, &kube.CompatibleObjectMapper{})
+		instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &resolver)
+
+		pluginContext := vuloperator.NewPluginContext().
+			WithName(vul.Plugin).
+			WithNamespace("vuloperator-ns").
+			WithServiceAccountName("vuloperator-sa").
+			WithClient(testClient).
+			Get()
+		err := instance.Init(pluginContext)
+		require.NoError(t, err)
+
+		var cm corev1.ConfigMap
+		err = testClient.Get(context.Background(), types.NamespacedName{
+			Namespace: "vuloperator-ns",
+			Name:      "vul-operator-vul-config",
+		}, &cm)
+		require.NoError(t, err)
+		assert.Equal(t, corev1.ConfigMap{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "v1",
+				Kind:       "ConfigMap",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "vul-operator-vul-config",
+				Namespace:       "vuloperator-ns",
+				ResourceVersion: "1",
+			},
+			Data: map[string]string{
+				"vul.repository": "gcr.io/khulnasoft-lab/vul",
+				"vul.tag":        "0.35.0",
+				"vul.severity":   vul.DefaultSeverity,
+				"vul.mode":       string(vul.Standalone),
+			},
+		}, cm)
+	})
+}
+
+func TestPlugin_GetScanJobSpec(t *testing.T) {
+
+	tmpVolume := corev1.Volume{
+		Name: "tmp",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium: corev1.StorageMediumDefault,
+			},
+		},
+	}
+
+	tmpVolumeMount := corev1.VolumeMount{
+		Name:      "tmp",
+		MountPath: "/tmp",
+		ReadOnly:  false,
+	}
+
+	timeoutEnv := corev1.EnvVar{
+		Name: "VUL_TIMEOUT",
+		ValueFrom: &corev1.EnvVarSource{
+			ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: "vul-operator-vul-config",
+				},
+				Key:      "vul.timeout",
+				Optional: pointer.Bool(true),
+			},
+		},
+	}
+
+	testCases := []struct {
+		name string
+
+		config              map[string]string
+		vulOperatorConfig map[string]string
+		workloadSpec        client.Object
+		credentials         map[string]docker.Auth
+
+		expectedSecretsData []map[string][]byte
+		expectedJobSpec     corev1.PodSpec
+	}{
+		{
+			name: "Standalone mode without insecure registry",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &appsv1.ReplicaSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "ReplicaSet",
+					APIVersion: "apps/v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx-6799fc88d8",
+					Namespace: "prod-ns",
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "nginx",
+									Image: "nginx:1.16",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with insecure registry",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "false",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                   "docker.io/khulnasoft/vul",
+				"vul.tag":                          "0.35.0",
+				"vul.mode":                         string(vul.Standalone),
+				"vul.insecureRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+				"vul.dbRepository":                 vul.DefaultDBRepository,
+				"vul.javaDbRepository":             vul.DefaultJavaDBRepository,
+
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "poc.myregistry.harbor.com.pl/nginx:1.16",
+						},
+					},
+				}},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				AutomountServiceAccountToken: pointer.Bool(false),
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_INSECURE",
+								Value: "true",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'poc.myregistry.harbor.com.pl/nginx:1.16' --security-checks secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with non-SSL registry",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "false",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                 "docker.io/khulnasoft/vul",
+				"vul.tag":                        "0.35.0",
+				"vul.mode":                       string(vul.Standalone),
+				"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+				"vul.dbRepository":               vul.DefaultDBRepository,
+				"vul.javaDbRepository":           vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":     "100m",
+				"vul.resources.requests.memory":  "100M",
+				"vul.resources.limits.cpu":       "500m",
+				"vul.resources.limits.memory":    "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "poc.myregistry.harbor.com.pl/nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_NON_SSL",
+								Value: "true",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'poc.myregistry.harbor.com.pl/nginx:1.16' --security-checks vuln   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with vulignore file",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.Standalone),
+				"vul.ignoreFile": `# Accept the risk
+CVE-2018-14618
+
+# No impact in our settings
+CVE-2019-1543`,
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+					{
+						Name: "ignorefile",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "vul-operator-vul-config",
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "vul.ignoreFile",
+										Path: ".vulignore",
+									},
+								},
+							},
+						},
+					},
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_IGNOREFILE",
+								Value: "/etc/vul/.vulignore",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+							{
+								Name:      "ignorefile",
+								MountPath: "/etc/vul/.vulignore",
+								SubPath:   ".vulignore",
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with vul ignore policy",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.Standalone),
+				"vul.ignorePolicy": `package vul
+
+import data.lib.vul
+
+default ignore = false`,
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+					{
+						Name: "ignorepolicy",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "vul-operator-vul-config",
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "vul.ignorePolicy",
+										Path: "policy.rego",
+									},
+								},
+							},
+						},
+					},
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_IGNORE_POLICY",
+								Value: "/etc/vul/policy.rego",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+							{
+								Name:      "ignorepolicy",
+								MountPath: "/etc/vul/policy.rego",
+								SubPath:   "policy.rego",
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with mirror",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.Standalone),
+
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+
+				"vul.registry.mirror.index.docker.io": "mirror.io",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'mirror.io/library/nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with custom db repositories",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.dbRepository":              "custom-registry.com/mirror/vul-db",
+				"vul.javaDbRepository":          "custom-registry.com/mirror/vul-java-db",
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &appsv1.ReplicaSet{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "ReplicaSet",
+					APIVersion: "apps/v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx-6799fc88d8",
+					Namespace: "prod-ns",
+				},
+				Spec: appsv1.ReplicaSetSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "nginx",
+									Image: "nginx:1.16",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", "custom-registry.com/mirror/vul-db",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "ClientServer mode without insecure registry",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{getTmpVolume(),
+					getScanResultVolume(),
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'http://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount()},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "ClientServer mode without insecure registry",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				ServiceAccountName:           "vuloperator-sa",
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{getTmpVolume(),
+					getScanResultVolume(),
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'http://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount()},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "ClientServer mode with insecure server",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "https://vul.vul:4954",
+				"vul.serverInsecure":            "true",
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "poc.myregistry.harbor.com.pl/nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{getTmpVolume(),
+					getScanResultVolume(),
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_INSECURE",
+								Value: "true",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'poc.myregistry.harbor.com.pl/nginx:1.16' --security-checks vuln,secret --image-config-scanners secret     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'https://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount()},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "ClientServer mode with non-SSL registry",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "false",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                 "docker.io/khulnasoft/vul",
+				"vul.tag":                        "0.35.0",
+				"vul.mode":                       string(vul.ClientServer),
+				"vul.serverURL":                  "http://vul.vul:4954",
+				"vul.nonSslRegistry.pocRegistry": "poc.myregistry.harbor.com.pl",
+				"vul.dbRepository":               vul.DefaultDBRepository,
+				"vul.javaDbRepository":           vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":     "100m",
+				"vul.resources.requests.memory":  "100M",
+				"vul.resources.limits.cpu":       "500m",
+				"vul.resources.limits.memory":    "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "poc.myregistry.harbor.com.pl/nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{getTmpVolume(),
+					getScanResultVolume(),
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_NON_SSL",
+								Value: "true",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'poc.myregistry.harbor.com.pl/nginx:1.16' --security-checks vuln     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'http://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount()},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "ClientServer mode with vulignore file",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "false",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.ClientServer),
+				"vul.serverURL":  "http://vul.vul:4954",
+				"vul.ignoreFile": `# Accept the risk
+CVE-2018-14618
+
+# No impact in our settings
+CVE-2019-1543`,
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+
+				Volumes: []corev1.Volume{getTmpVolume(), getScanResultVolume(),
+					{
+						Name: "ignorefile",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "vul-operator-vul-config",
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "vul.ignoreFile",
+										Path: ".vulignore",
+									},
+								},
+							},
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_IGNOREFILE",
+								Value: "/etc/vul/.vulignore",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks secret --image-config-scanners secret     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'http://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount(),
+							{
+								Name:      "ignorefile",
+								MountPath: "/etc/vul/.vulignore",
+								SubPath:   ".vulignore",
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "ClientServer mode with vul ignore policy",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "false",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.ClientServer),
+				"vul.serverURL":  "http://vul.vul:4954",
+				"vul.ignorePolicy": `package vul
+
+import data.lib.vul
+
+default ignore = false`,
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+
+				Volumes: []corev1.Volume{getTmpVolume(), getScanResultVolume(),
+					{
+						Name: "ignorepolicy",
+						VolumeSource: corev1.VolumeSource{
+							ConfigMap: &corev1.ConfigMapVolumeSource{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "vul-operator-vul-config",
+								},
+								Items: []corev1.KeyToPath{
+									{
+										Key:  "vul.ignorePolicy",
+										Path: "policy.rego",
+									},
+								},
+							},
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "VUL_IGNORE_POLICY",
+								Value: "/etc/vul/policy.rego",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks secret --image-config-scanners secret     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'http://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount(),
+							{
+								Name:      "ignorepolicy",
+								MountPath: "/etc/vul/policy.rego",
+								SubPath:   "policy.rego",
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "ClientServer mode with custom db repositories",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.dbRepository":              "custom-registry.com/mirror/vul-db",
+				"vul.javaDbRepository":          "custom-registry.com/mirror/vul-java-db",
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{getTmpVolume(),
+					getScanResultVolume(),
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret     --cache-dir /tmp/vul/.cache --quiet  --format json --server 'http://vul.vul:4954' > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{getTmpVolumeMount(), getScanResultVolumeMount()},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "Vul fs scan command in Standalone mode",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.command":                   string(vul.Filesystem),
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.9.1",
+						},
+					},
+					NodeName: "kind-control-pane",
+				}},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					{
+						Name: vul.FsSharedVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					{
+						Name: "tmp",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Command: []string{
+							"cp",
+							"-v",
+							"/usr/local/bin/vul",
+							vul.SharedVolumeLocationOfVul,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+					{
+						Name:                     "00000000-0000-0000-0000-000000000002",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir",
+							"/var/vuloperator/vul-db",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "nginx:1.9.1",
+						ImagePullPolicy:          corev1.PullNever,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							vul.SharedVolumeLocationOfVul,
+						},
+						Args: []string{
+							"--cache-dir",
+							"/var/vuloperator/vul-db",
+							"--quiet",
+							"filesystem",
+							"--security-checks",
+							"vuln,secret",
+							"--skip-update",
+							"--format",
+							"json",
+							"/",
+							"--slow",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+							getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+				NodeName:        "kind-control-pane",
+			},
+		},
+		{
+			name: "Vul fs scan command in ClientServer mode",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.command":                   string(vul.Filesystem),
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.9.1",
+						},
+					},
+					NodeName: "kind-control-pane",
+				}},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					{
+						Name: vul.FsSharedVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					{
+						Name: "tmp",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Command: []string{
+							"cp",
+							"-v",
+							"/usr/local/bin/vul",
+							vul.SharedVolumeLocationOfVul,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "nginx:1.9.1",
+						ImagePullPolicy:          corev1.PullNever,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							vul.SharedVolumeLocationOfVul,
+						},
+						Args: []string{
+							"--cache-dir",
+							"/var/vuloperator/vul-db",
+							"--quiet",
+							"filesystem",
+							"--security-checks",
+							"vuln,secret",
+							"--skip-update",
+							"--format",
+							"json",
+							"/",
+							"--server",
+							"http://vul.vul:4954",
+							"--slow",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+							getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+				NodeName:        "kind-control-pane",
+			},
+		},
+		{
+			name: "Vul rootfs scan command in Standalone mode",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.Standalone),
+				"vul.command":                   string(vul.Rootfs),
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.9.1",
+						},
+					},
+					NodeName: "kind-control-pane",
+				}},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					{
+						Name: vul.FsSharedVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					{
+						Name: "tmp",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Command: []string{
+							"cp",
+							"-v",
+							"/usr/local/bin/vul",
+							vul.SharedVolumeLocationOfVul,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+					{
+						Name:                     "00000000-0000-0000-0000-000000000002",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir",
+							"/var/vuloperator/vul-db",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "nginx:1.9.1",
+						ImagePullPolicy:          corev1.PullNever,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							vul.SharedVolumeLocationOfVul,
+						},
+						Args: []string{
+							"--cache-dir",
+							"/var/vuloperator/vul-db",
+							"--quiet",
+							"rootfs",
+							"--security-checks",
+							"vuln,secret",
+							"--skip-update",
+							"--format",
+							"json",
+							"/",
+							"--slow",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+							getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+				NodeName:        "kind-control-pane",
+			},
+		},
+		{
+			name: "Vul rootfs scan command in ClientServer mode",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository":                "docker.io/khulnasoft/vul",
+				"vul.tag":                       "0.35.0",
+				"vul.mode":                      string(vul.ClientServer),
+				"vul.serverURL":                 "http://vul.vul:4954",
+				"vul.command":                   string(vul.Rootfs),
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.9.1",
+						},
+					},
+					NodeName: "kind-control-pane",
+				}},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					{
+						Name: vul.FsSharedVolumeName,
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					{
+						Name: "tmp",
+						VolumeSource: corev1.VolumeSource{
+							EmptyDir: &corev1.EmptyDirVolumeSource{
+								Medium: corev1.StorageMediumDefault,
+							},
+						},
+					},
+					getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Command: []string{
+							"cp",
+							"-v",
+							"/usr/local/bin/vul",
+							vul.SharedVolumeLocationOfVul,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "nginx:1.9.1",
+						ImagePullPolicy:          corev1.PullNever,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN_HEADER",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverTokenHeader",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_CUSTOM_HEADERS",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.serverCustomHeaders",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							vul.SharedVolumeLocationOfVul,
+						},
+						Args: []string{
+							"--cache-dir",
+							"/var/vuloperator/vul-db",
+							"--quiet",
+							"rootfs",
+							"--security-checks",
+							"vuln,secret",
+							"--skip-update",
+							"--format",
+							"json",
+							"/",
+							"--server",
+							"http://vul.vul:4954",
+							"--slow",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      vul.FsSharedVolumeName,
+								ReadOnly:  false,
+								MountPath: "/var/vuloperator",
+							},
+							{
+								Name:      "tmp",
+								MountPath: "/tmp",
+								ReadOnly:  false,
+							},
+							getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+				NodeName:        "kind-control-pane",
+			},
+		},
+		{
+			name: "Standalone mode with ECR image and mirror",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.Standalone),
+
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+
+				"vul.registry.mirror.000000000000.dkr.ecr.us-east-1.amazonaws.com": "000000000000.dkr.ecr.eu-west-1.amazonaws.com",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "000000000000.dkr.ecr.us-east-1.amazonaws.com/nginx:1.16",
+						},
+					},
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name:  "AWS_REGION",
+								Value: "eu-west-1",
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow '000000000000.dkr.ecr.eu-west-1.amazonaws.com/nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with credentials",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.Standalone),
+
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			credentials: map[string]docker.Auth{
+				"index.docker.io": {Username: "user1", Password: "pass123"},
+			},
+			expectedSecretsData: []map[string][]byte{
+				{
+					"nginx.username": []byte("user1"),
+					"nginx.password": []byte("pass123"),
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_USERNAME",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "scan-vulnerabilityreport-5cbcd9b4dc-regcred",
+										},
+										Key: "nginx.username",
+									},
+								},
+							},
+							{
+								Name: "VUL_PASSWORD",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "scan-vulnerabilityreport-5cbcd9b4dc-regcred",
+										},
+										Key: "nginx.password",
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+		{
+			name: "Standalone mode with credentials and mirror",
+			vulOperatorConfig: map[string]string{
+				vuloperator.KeyVulnerabilityScannerEnabled:  "true",
+				vuloperator.KeyExposedSecretsScannerEnabled: "true",
+				vuloperator.KeyScanJobcompressLogs:          "true",
+			},
+			config: map[string]string{
+				"vul.repository": "docker.io/khulnasoft/vul",
+				"vul.tag":        "0.35.0",
+				"vul.mode":       string(vul.Standalone),
+
+				"vul.dbRepository":              vul.DefaultDBRepository,
+				"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+				"vul.resources.requests.cpu":    "100m",
+				"vul.resources.requests.memory": "100M",
+				"vul.resources.limits.cpu":      "500m",
+				"vul.resources.limits.memory":   "500M",
+
+				"vul.registry.mirror.index.docker.io": "mirror.io",
+			},
+			workloadSpec: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			credentials: map[string]docker.Auth{
+				"mirror.io": {Username: "user1", Password: "pass123"},
+			},
+			expectedSecretsData: []map[string][]byte{
+				{
+					"nginx.username": []byte("user1"),
+					"nginx.password": []byte("pass123"),
+				},
+			},
+			expectedJobSpec: corev1.PodSpec{
+				Affinity:                     vuloperator.LinuxNodeAffinity(),
+				RestartPolicy:                corev1.RestartPolicyNever,
+				ServiceAccountName:           "vuloperator-sa",
+				ImagePullSecrets:             []corev1.LocalObjectReference{},
+				AutomountServiceAccountToken: pointer.Bool(false),
+				Volumes: []corev1.Volume{
+					tmpVolume, getScanResultVolume(),
+				},
+				InitContainers: []corev1.Container{
+					{
+						Name:                     "00000000-0000-0000-0000-000000000001",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "GITHUB_TOKEN",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.githubToken",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+						},
+						Command: []string{
+							"vul",
+						},
+						Args: []string{
+							"--cache-dir", "/tmp/vul/.cache",
+							"image",
+							"--download-db-only",
+							"--db-repository", vul.DefaultDBRepository,
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount,
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:                     "nginx",
+						Image:                    "docker.io/khulnasoft/vul:0.35.0",
+						ImagePullPolicy:          corev1.PullIfNotPresent,
+						TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+						Env: []corev1.EnvVar{
+							{
+								Name: "VUL_SEVERITY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.severity",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_IGNORE_UNFIXED",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.ignoreUnfixed",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_OFFLINE_SCAN",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.offlineScan",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_JAVA_DB_REPOSITORY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.javaDbRepository",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							timeoutEnv,
+							{
+								Name: "VUL_SKIP_FILES",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipFiles",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_SKIP_DIRS",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.skipDirs",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTP_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "HTTPS_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.httpsProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "NO_PROXY",
+								ValueFrom: &corev1.EnvVarSource{
+									ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "vul-operator-vul-config",
+										},
+										Key:      "vul.noProxy",
+										Optional: pointer.Bool(true),
+									},
+								},
+							},
+							{
+								Name: "VUL_USERNAME",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "scan-vulnerabilityreport-5cbcd9b4dc-regcred",
+										},
+										Key: "nginx.username",
+									},
+								},
+							},
+							{
+								Name: "VUL_PASSWORD",
+								ValueFrom: &corev1.EnvVarSource{
+									SecretKeyRef: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "scan-vulnerabilityreport-5cbcd9b4dc-regcred",
+										},
+										Key: "nginx.password",
+									},
+								},
+							},
+						},
+						Command: []string{
+							"/bin/sh",
+						},
+						Args: []string{
+							"-c",
+							"vul image --slow 'mirror.io/library/nginx:1.16' --security-checks vuln,secret --image-config-scanners secret   --skip-update  --cache-dir /tmp/vul/.cache --quiet  --format json > /tmp/scan/result_nginx.json &&  bzip2 -c /tmp/scan/result_nginx.json | base64",
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("100M"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("500m"),
+								corev1.ResourceMemory: resource.MustParse("500M"),
+							},
+						},
+						VolumeMounts: []corev1.VolumeMount{
+							tmpVolumeMount, getScanResultVolumeMount(),
+						},
+						SecurityContext: &corev1.SecurityContext{
+							Privileged:               pointer.Bool(false),
+							AllowPrivilegeEscalation: pointer.Bool(false),
+							Capabilities: &corev1.Capabilities{
+								Drop: []corev1.Capability{"all"},
+							},
+							ReadOnlyRootFilesystem: pointer.Bool(true),
+						},
+					},
+				},
+				SecurityContext: &corev1.PodSecurityContext{},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeclient := fake.NewClientBuilder().WithObjects(
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "vul-operator-vul-config",
+						Namespace: "vuloperator-ns",
+					},
+					Data: tc.config,
+				}, &v1.CronJob{}).Build()
+			pluginContext := vuloperator.NewPluginContext().
+				WithName(vul.Plugin).
+				WithNamespace("vuloperator-ns").
+				WithServiceAccountName("vuloperator-sa").
+				WithVulOperatorConfig(tc.vulOperatorConfig).
+				WithClient(fakeclient).
+				Get()
+			resolver := kube.NewObjectResolver(fakeclient, &kube.CompatibleObjectMapper{})
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &resolver)
+			securityContext := &corev1.SecurityContext{
+				Privileged:               pointer.Bool(false),
+				AllowPrivilegeEscalation: pointer.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"all"},
+				},
+				ReadOnlyRootFilesystem: pointer.Bool(true),
+			}
+			jobSpec, secrets, err := instance.GetScanJobSpec(pluginContext, tc.workloadSpec, tc.credentials, securityContext)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedJobSpec, jobSpec)
+			assert.Equal(t, len(tc.expectedSecretsData), len(secrets))
+			for i := 0; i < len(secrets); i++ {
+				assert.Equal(t, tc.expectedSecretsData[i], secrets[i].Data)
+			}
+
+		})
+	}
+
+	testCases = []struct {
+		name                string
+		config              map[string]string
+		vulOperatorConfig map[string]string
+		workloadSpec        client.Object
+		credentials         map[string]docker.Auth
+		expectedSecretsData []map[string][]byte
+		expectedJobSpec     corev1.PodSpec
+	}{{
+		name: "Vul fs scan command in Standalone mode",
+		vulOperatorConfig: map[string]string{
+			vuloperator.KeyVulnerabilityScannerEnabled:       "true",
+			vuloperator.KeyExposedSecretsScannerEnabled:      "true",
+			vuloperator.KeyVulnerabilityScansInSameNamespace: "true",
+		},
+		config: map[string]string{
+			"vul.repository":                "docker.io/khulnasoft/vul",
+			"vul.tag":                       "0.35.0",
+			"vul.mode":                      string(vul.Standalone),
+			"vul.command":                   string(vul.Filesystem),
+			"vul.dbRepository":              vul.DefaultDBRepository,
+			"vul.javaDbRepository":          vul.DefaultJavaDBRepository,
+			"vul.resources.requests.cpu":    "100m",
+			"vul.resources.requests.memory": "100M",
+			"vul.resources.limits.cpu":      "500m",
+			"vul.resources.limits.memory":   "500M",
+		},
+		workloadSpec: &corev1.Pod{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "Pod",
+				APIVersion: "v1",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "nginx",
+				Namespace: "prod-ns",
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "nginx",
+						Image: "nginx:1.9.1",
+					},
+				},
+				NodeName:           "kind-control-pane",
+				ServiceAccountName: "nginx-sa",
+			}},
+		expectedJobSpec: corev1.PodSpec{
+			Affinity:                     vuloperator.LinuxNodeAffinity(),
+			RestartPolicy:                corev1.RestartPolicyNever,
+			ServiceAccountName:           "vuloperator-sa",
+			ImagePullSecrets:             []corev1.LocalObjectReference{},
+			AutomountServiceAccountToken: pointer.Bool(false),
+			Volumes: []corev1.Volume{
+				{
+					Name: vul.FsSharedVolumeName,
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{
+							Medium: corev1.StorageMediumDefault,
+						},
+					},
+				},
+				{
+					Name: "tmp",
+					VolumeSource: corev1.VolumeSource{
+						EmptyDir: &corev1.EmptyDirVolumeSource{
+							Medium: corev1.StorageMediumDefault,
+						},
+					},
+				},
+				getScanResultVolume(),
+			},
+			InitContainers: []corev1.Container{
+				{
+					Name:                     "00000000-0000-0000-0000-000000000001",
+					Image:                    "docker.io/khulnasoft/vul:0.35.0",
+					ImagePullPolicy:          corev1.PullIfNotPresent,
+					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+					Command: []string{
+						"cp",
+						"-v",
+						"/usr/local/bin/vul",
+						vul.SharedVolumeLocationOfVul,
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100M"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("500M"),
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      vul.FsSharedVolumeName,
+							ReadOnly:  false,
+							MountPath: "/var/vuloperator",
+						},
+						{
+							Name:      "tmp",
+							MountPath: "/tmp",
+							ReadOnly:  false,
+						},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               pointer.Bool(false),
+						AllowPrivilegeEscalation: pointer.Bool(false),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"all"},
+						},
+						ReadOnlyRootFilesystem: pointer.Bool(true),
+						RunAsUser:              pointer.Int64(0),
+					},
+				},
+				{
+					Name:                     "00000000-0000-0000-0000-000000000002",
+					Image:                    "docker.io/khulnasoft/vul:0.35.0",
+					ImagePullPolicy:          corev1.PullIfNotPresent,
+					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+					Env: []corev1.EnvVar{
+						{
+							Name: "HTTP_PROXY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.httpProxy",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "HTTPS_PROXY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.httpsProxy",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "NO_PROXY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.noProxy",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "GITHUB_TOKEN",
+							ValueFrom: &corev1.EnvVarSource{
+								SecretKeyRef: &corev1.SecretKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.githubToken",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+					},
+					Command: []string{
+						"vul",
+					},
+					Args: []string{
+						"--cache-dir",
+						"/var/vuloperator/vul-db",
+						"image",
+						"--download-db-only",
+						"--db-repository", vul.DefaultDBRepository,
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100M"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("500M"),
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      vul.FsSharedVolumeName,
+							ReadOnly:  false,
+							MountPath: "/var/vuloperator",
+						},
+						{
+							Name:      "tmp",
+							MountPath: "/tmp",
+							ReadOnly:  false,
+						},
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               pointer.Bool(false),
+						AllowPrivilegeEscalation: pointer.Bool(false),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"all"},
+						},
+						ReadOnlyRootFilesystem: pointer.Bool(true),
+						RunAsUser:              pointer.Int64(0),
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:                     "nginx",
+					Image:                    "nginx:1.9.1",
+					ImagePullPolicy:          corev1.PullIfNotPresent,
+					TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+					Env: []corev1.EnvVar{
+						{
+							Name: "VUL_SEVERITY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.severity",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "VUL_SKIP_FILES",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.skipFiles",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "VUL_SKIP_DIRS",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.skipDirs",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "HTTP_PROXY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.httpProxy",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "HTTPS_PROXY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.httpsProxy",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "NO_PROXY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.noProxy",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+						{
+							Name: "VUL_JAVA_DB_REPOSITORY",
+							ValueFrom: &corev1.EnvVarSource{
+								ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: "vul-operator-vul-config",
+									},
+									Key:      "vul.javaDbRepository",
+									Optional: pointer.Bool(true),
+								},
+							},
+						},
+					},
+					Command: []string{
+						vul.SharedVolumeLocationOfVul,
+					},
+					Args: []string{
+						"--cache-dir",
+						"/var/vuloperator/vul-db",
+						"--quiet",
+						"filesystem",
+						"--security-checks",
+						"vuln,secret",
+						"--skip-update",
+						"--format",
+						"json",
+						"/",
+						"--slow",
+					},
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100M"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+							corev1.ResourceMemory: resource.MustParse("500M"),
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      vul.FsSharedVolumeName,
+							ReadOnly:  false,
+							MountPath: "/var/vuloperator",
+						},
+						{
+							Name:      "tmp",
+							MountPath: "/tmp",
+							ReadOnly:  false,
+						},
+						getScanResultVolumeMount(),
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               pointer.Bool(false),
+						AllowPrivilegeEscalation: pointer.Bool(false),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{"all"},
+						},
+						ReadOnlyRootFilesystem: pointer.Bool(true),
+						RunAsUser:              pointer.Int64(0),
+					},
+				},
+			},
+			SecurityContext: &corev1.PodSecurityContext{},
+		},
+	}}
+	// Test cases when vuloperator is enabled with option to run job in the namespace of workload
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeclient := fake.NewClientBuilder().WithObjects(
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "vul-operator-vul-config",
+						Namespace: "vuloperator-ns",
+					},
+					Data: tc.config,
+				}, &v1beta1.CronJob{}).Build()
+			pluginContext := vuloperator.NewPluginContext().
+				WithName(vul.Plugin).
+				WithNamespace("vuloperator-ns").
+				WithServiceAccountName("vuloperator-sa").
+				WithClient(fakeclient).
+				WithVulOperatorConfig(tc.vulOperatorConfig).
+				Get()
+			resolver := kube.NewObjectResolver(fakeclient, &kube.CompatibleObjectMapper{})
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &resolver)
+			securityContext := &corev1.SecurityContext{
+				Privileged:               pointer.Bool(false),
+				AllowPrivilegeEscalation: pointer.Bool(false),
+				Capabilities: &corev1.Capabilities{
+					Drop: []corev1.Capability{"all"},
+				},
+				ReadOnlyRootFilesystem: pointer.Bool(true),
+				// Root expected for standalone mode - the user would need to know this
+				RunAsUser: pointer.Int64(0),
+			}
+			jobSpec, secrets, err := instance.GetScanJobSpec(pluginContext, tc.workloadSpec, tc.credentials, securityContext)
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedJobSpec, jobSpec)
+			assert.Equal(t, len(tc.expectedSecretsData), len(secrets))
+			for i := 0; i < len(secrets); i++ {
+				assert.Equal(t, tc.expectedSecretsData[i], secrets[i].Data)
+			}
+		})
+	}
+}
+
+var (
+	sampleVulnerabilityReport = v1alpha1.VulnerabilityReportData{
+		UpdateTimestamp: metav1.NewTime(fixedTime),
+		Scanner: v1alpha1.Scanner{
+			Name:    v1alpha1.ScannerNameVul,
+			Vendor:  "Khulnasoft Security",
+			Version: "0.9.1",
+		},
+		Registry: v1alpha1.Registry{
+			Server: "index.docker.io",
+		},
+		Artifact: v1alpha1.Artifact{
+			Repository: "library/alpine",
+			Tag:        "3.10.2",
+		},
+		Summary: v1alpha1.VulnerabilitySummary{
+			CriticalCount: 0,
+			MediumCount:   1,
+			LowCount:      1,
+			NoneCount:     0,
+			UnknownCount:  0,
+		},
+		Vulnerabilities: []v1alpha1.Vulnerability{
+			{
+				VulnerabilityID:  "CVE-2019-1549",
+				Resource:         "openssl",
+				InstalledVersion: "1.1.1c-r0",
+				FixedVersion:     "1.1.1d-r0",
+				Severity:         v1alpha1.SeverityMedium,
+				Title:            "openssl: information disclosure in fork()",
+				PrimaryLink:      "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-1549",
+				Links:            []string{},
+			},
+			{
+				VulnerabilityID:  "CVE-2019-1547",
+				Resource:         "openssl",
+				InstalledVersion: "1.1.1c-r0",
+				FixedVersion:     "1.1.1d-r0",
+				Severity:         v1alpha1.SeverityLow,
+				Title:            "openssl: side-channel weak encryption vulnerability",
+				PrimaryLink:      "https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2019-1547",
+				Links:            []string{},
+			},
+		},
+	}
+
+	sampleExposedSecretReport = v1alpha1.ExposedSecretReportData{
+		UpdateTimestamp: metav1.NewTime(fixedTime),
+		Scanner: v1alpha1.Scanner{
+			Name:    v1alpha1.ScannerNameVul,
+			Vendor:  "Khulnasoft Security",
+			Version: "0.9.1",
+		},
+		Registry: v1alpha1.Registry{
+			Server: "index.docker.io",
+		},
+		Artifact: v1alpha1.Artifact{
+			Repository: "library/alpine",
+			Tag:        "3.10.2",
+		},
+		Summary: v1alpha1.ExposedSecretSummary{
+			CriticalCount: 3,
+			HighCount:     1,
+			MediumCount:   0,
+			LowCount:      0,
+		},
+		Secrets: []v1alpha1.ExposedSecret{
+			{
+				Target:   "/app/config/secret.yaml",
+				RuleID:   "stripe-publishable-token",
+				Category: "Stripe",
+				Severity: "HIGH",
+				Title:    "Stripe",
+				Match:    "publishable_key: *****",
+			},
+			{
+				Target:   "/app/config/secret.yaml",
+				RuleID:   "stripe-access-token",
+				Category: "Stripe",
+				Severity: "CRITICAL",
+				Title:    "Stripe",
+				Match:    "secret_key: *****",
+			},
+			{
+				Target:   "/etc/apt/s3auth.conf",
+				RuleID:   "aws-access-key-id",
+				Category: "AWS",
+				Severity: "CRITICAL",
+				Title:    "AWS Access Key ID",
+				Match:    "AccessKeyId = ********************",
+			},
+			{
+				Target:   "/etc/apt/s3auth.conf",
+				RuleID:   "aws-secret-access-key",
+				Category: "AWS",
+				Severity: "CRITICAL",
+				Title:    "AWS Secret Access Key",
+				Match:    "SecretAccessKey = ****************************************",
+			},
+		},
+	}
+
+	emptyVulnerabilityReport = v1alpha1.VulnerabilityReportData{
+		UpdateTimestamp: metav1.NewTime(fixedTime),
+		Scanner: v1alpha1.Scanner{
+			Name:    v1alpha1.ScannerNameVul,
+			Vendor:  "Khulnasoft Security",
+			Version: "0.9.1",
+		},
+		Registry: v1alpha1.Registry{
+			Server: "index.docker.io",
+		},
+		Artifact: v1alpha1.Artifact{
+			Repository: "library/alpine",
+			Tag:        "3.10.2",
+		},
+		Summary: v1alpha1.VulnerabilitySummary{
+			CriticalCount: 0,
+			HighCount:     0,
+			MediumCount:   0,
+			LowCount:      0,
+			NoneCount:     0,
+			UnknownCount:  0,
+		},
+		Vulnerabilities: []v1alpha1.Vulnerability{},
+	}
+
+	emptyExposedSecretReport = v1alpha1.ExposedSecretReportData{
+		UpdateTimestamp: metav1.NewTime(fixedTime),
+		Scanner: v1alpha1.Scanner{
+			Name:    v1alpha1.ScannerNameVul,
+			Vendor:  "Khulnasoft Security",
+			Version: "0.9.1",
+		},
+		Registry: v1alpha1.Registry{
+			Server: "index.docker.io",
+		},
+		Artifact: v1alpha1.Artifact{
+			Repository: "library/alpine",
+			Tag:        "3.10.2",
+		},
+		Summary: v1alpha1.ExposedSecretSummary{
+			CriticalCount: 0,
+			HighCount:     0,
+			MediumCount:   0,
+			LowCount:      0,
+		},
+		Secrets: []v1alpha1.ExposedSecret{},
+	}
+)
+
+func TestPlugin_ParseReportData(t *testing.T) {
+	config := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "vul-operator-vul-config",
+			Namespace: "vuloperator-ns",
+		},
+		Data: map[string]string{
+			"vul.repository": "khulnasoft/vul",
+			"vul.tag":        "0.9.1",
+		},
+	}
+
+	testCases := []struct {
+		name                        string
+		imageRef                    string
+		input                       string
+		expectedError               error
+		expectedVulnerabilityReport v1alpha1.VulnerabilityReportData
+		expectedExposedSecretReport v1alpha1.ExposedSecretReportData
+		compressed                  string
+	}{
+		{
+			name:                        "Should convert both vulnerability and exposedsecret report in JSON format when input is quiet",
+			imageRef:                    "alpine:3.10.2",
+			input:                       getReportAsString("full_report.json"),
+			expectedError:               nil,
+			expectedVulnerabilityReport: sampleVulnerabilityReport,
+			expectedExposedSecretReport: sampleExposedSecretReport,
+			compressed:                  "true",
+		},
+		{
+			name:                        "Should convert both vulnerability and exposedsecret report in JSON format when input is quiet",
+			imageRef:                    "alpine:3.10.2",
+			input:                       getReportAsStringnonCompressed("full_report.json"),
+			expectedError:               nil,
+			expectedVulnerabilityReport: sampleVulnerabilityReport,
+			expectedExposedSecretReport: sampleExposedSecretReport,
+			compressed:                  "false",
+		},
+		{
+			name:                        "Should convert vulnerability report in JSON format when OS is not detected",
+			imageRef:                    "alpine:3.10.2",
+			input:                       `null`,
+			expectedError:               fmt.Errorf("bzip2 data invalid: bad magic value"),
+			expectedVulnerabilityReport: emptyVulnerabilityReport,
+			expectedExposedSecretReport: emptyExposedSecretReport,
+			compressed:                  "true",
+		},
+		{
+			name:                        "Should only parse vulnerability report",
+			imageRef:                    "alpine:3.10.2",
+			input:                       getReportAsString("vulnerability_report.json"),
+			expectedError:               nil,
+			expectedVulnerabilityReport: sampleVulnerabilityReport,
+			expectedExposedSecretReport: emptyExposedSecretReport,
+			compressed:                  "true",
+		},
+		{
+			name:                        "Should only parse exposedsecret report",
+			imageRef:                    "alpine:3.10.2",
+			input:                       getReportAsString("exposedsecret_report.json"),
+			expectedError:               nil,
+			expectedVulnerabilityReport: emptyVulnerabilityReport,
+			expectedExposedSecretReport: sampleExposedSecretReport,
+			compressed:                  "true",
+		},
+		{
+			name:          "Should return error when image reference cannot be parsed",
+			imageRef:      ":",
+			input:         "null",
+			expectedError: errors.New("could not parse reference: :"),
+			compressed:    "false",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeClient := fake.NewClientBuilder().WithObjects(config).Build()
+			ctx := vuloperator.NewPluginContext().
+				WithName("Vul").
+				WithNamespace("vuloperator-ns").
+				WithServiceAccountName("vuloperator-sa").
+				WithClient(fakeClient).
+				WithVulOperatorConfig(map[string]string{
+					"scanJob.compressLogs": tc.compressed,
+					"generateSbomEnabled":  "false",
+				}).
+				Get()
+
+			resolver := kube.NewObjectResolver(fakeClient, &kube.CompatibleObjectMapper{})
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &resolver)
+			vulnReport, secretReport, _, err := instance.ParseReportData(ctx, tc.imageRef, io.NopCloser(strings.NewReader(tc.input)))
+			switch {
+			case tc.expectedError == nil:
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedVulnerabilityReport, vulnReport)
+				assert.Equal(t, tc.expectedExposedSecretReport, secretReport)
+			default:
+				assert.EqualError(t, err, tc.expectedError.Error())
+			}
+		})
+	}
+
+}
+
+func TestGetScoreFromCVSS(t *testing.T) {
+	testCases := []struct {
+		name          string
+		cvss          dbtypes.VendorCVSS
+		expectedScore *float64
+	}{
+		{
+			name: "Should return nvd score when nvd and vendor v3 score exist",
+			cvss: dbtypes.VendorCVSS{
+				"nvd": {
+					V3Score: 8.1,
+				},
+				"redhat": {
+					V3Score: 8.3,
+				},
+			},
+			expectedScore: pointer.Float64(8.1),
+		},
+		{
+			name: "Should return nvd score when vendor v3 score is nil",
+			cvss: dbtypes.VendorCVSS{
+				"nvd": {
+					V3Score: 8.1,
+				},
+				"redhat": {
+					V3Score: 0.0,
+				},
+			},
+			expectedScore: pointer.Float64(8.1),
+		},
+		{
+			name: "Should return nvd score when vendor doesn't exist",
+			cvss: dbtypes.VendorCVSS{
+				"nvd": {
+					V3Score: 8.1,
+				},
+			},
+			expectedScore: pointer.Float64(8.1),
+		},
+		{
+			name: "Should return vendor score when nvd doesn't exist",
+			cvss: dbtypes.VendorCVSS{
+				"redhat": {
+					V3Score: 8.1,
+				},
+			},
+			expectedScore: pointer.Float64(8.1),
+		},
+		{
+			name: "Should return nil when vendor and nvd both v3 scores are nil",
+			cvss: dbtypes.VendorCVSS{
+				"nvd": {
+					V3Score: 0.0,
+				},
+				"redhat": {
+					V3Score: 0.0,
+				},
+			},
+			expectedScore: nil,
+		},
+		{
+			name:          "Should return nil when cvss doesn't exist",
+			cvss:          dbtypes.VendorCVSS{},
+			expectedScore: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			score := vul.GetScoreFromCVSS(vul.GetCvssV3(tc.cvss))
+			assert.Equal(t, tc.expectedScore, score)
+		})
+	}
+}
+
+func TestGetCVSSV3(t *testing.T) {
+	testCases := []struct {
+		name     string
+		cvss     dbtypes.VendorCVSS
+		expected map[string]*vul.CVSS
+	}{
+		{
+			name: "Should return vendor score when vendor v3 score exist",
+			cvss: dbtypes.VendorCVSS{
+				"nvd": {
+					V3Score: 8.1,
+				},
+				"redhat": {
+					V3Score: 8.3,
+				},
+			},
+			expected: map[string]*vul.CVSS{
+				"nvd":    {V3Score: pointer.Float64(8.1)},
+				"redhat": {V3Score: pointer.Float64(8.3)},
+			},
+		},
+		{
+			name: "Should return nil when vendor and nvd both v3 scores are nil",
+			cvss: dbtypes.VendorCVSS{
+				"nvd": {
+					V3Score: 0.0,
+				},
+				"redhat": {
+					V3Score: 0.0,
+				},
+			},
+			expected: map[string]*vul.CVSS{
+				"nvd":    {V3Score: nil},
+				"redhat": {V3Score: nil},
+			},
+		},
+		{
+			name:     "Should return nil when cvss doesn't exist",
+			cvss:     dbtypes.VendorCVSS{},
+			expected: map[string]*vul.CVSS{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			score := vul.GetCvssV3(tc.cvss)
+			assert.True(t, reflect.DeepEqual(tc.expected, score))
+		})
+	}
+}
+
+func TestGetMirroredImage(t *testing.T) {
+	testCases := []struct {
+		name          string
+		image         string
+		mirrors       map[string]string
+		expected      string
+		expectedError string
+	}{
+		{
+			name:     "Mirror not match",
+			image:    "alpine",
+			mirrors:  map[string]string{"gcr.io": "mirror.io"},
+			expected: "alpine",
+		},
+		{
+			name:     "Mirror match",
+			image:    "alpine",
+			mirrors:  map[string]string{"index.docker.io": "mirror.io"},
+			expected: "mirror.io/library/alpine:latest",
+		},
+		{
+			name:          "Broken image",
+			image:         "alpine@sha256:broken",
+			expectedError: "could not parse reference: alpine@sha256:broken",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			expected, err := vul.GetMirroredImage(tc.image, tc.mirrors)
+			if tc.expectedError != "" {
+				require.EqualError(t, err, tc.expectedError)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tc.expected, expected)
+			}
+		})
+	}
+}
+
+func TestGetContainers(t *testing.T) {
+	workloadSpec := &appsv1.ReplicaSet{
+		Spec: appsv1.ReplicaSetSpec{
+			Template: corev1.PodTemplateSpec{
+
+				Spec: corev1.PodSpec{
+					InitContainers: []corev1.Container{
+						{Name: "init1", Image: "busybox:1.34.1"},
+						{Name: "init2", Image: "busybox:1.34.1"},
+					},
+					Containers: []corev1.Container{
+						{Name: "container1", Image: "busybox:1.34.1"},
+						{Name: "container2", Image: "busybox:1.34.1"},
+					},
+					EphemeralContainers: []corev1.EphemeralContainer{
+						{
+							EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+								Name: "ephemeral1", Image: "busybox:1.34.1",
+							},
+						},
+						{
+							EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+								Name: "ephemeral2", Image: "busybox:1.34.1",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name       string
+		configData map[string]string
+	}{
+		{
+			name: "Standalone mode with image command",
+			configData: map[string]string{
+				"vul.dbRepository":     vul.DefaultDBRepository,
+				"vul.javaDbRepository": vul.DefaultJavaDBRepository,
+				"vul.repository":       "gcr.io/khulnasoft/vul",
+				"vul.tag":              "0.35.0",
+				"vul.mode":             string(vul.Standalone),
+				"vul.command":          string(vul.Image),
+			},
+		},
+		{
+			name: "ClientServer mode with image command",
+			configData: map[string]string{
+				"vul.serverURL":        "http://vul.vul:4954",
+				"vul.dbRepository":     vul.DefaultDBRepository,
+				"vul.javaDbRepository": vul.DefaultJavaDBRepository,
+				"vul.repository":       "gcr.io/khulnasoft/vul",
+				"vul.tag":              "0.35.0",
+				"vul.mode":             string(vul.ClientServer),
+				"vul.command":          string(vul.Image),
+			},
+		},
+		{
+			name: "Standalone mode with filesystem command",
+			configData: map[string]string{
+				"vul.serverURL":        "http://vul.vul:4954",
+				"vul.dbRepository":     vul.DefaultDBRepository,
+				"vul.javaDbRepository": vul.DefaultJavaDBRepository,
+				"vul.repository":       "docker.io/khulnasoft/vul",
+				"vul.tag":              "0.35.0",
+				"vul.mode":             string(vul.Standalone),
+				"vul.command":          string(vul.Filesystem),
+			},
+		},
+	}
+
+	expectedContainers := []string{
+		"container1",
+		"container2",
+		"ephemeral1",
+		"ephemeral2",
+		"init1",
+		"init2",
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeclient := fake.NewClientBuilder().WithObjects(
+				&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "vul-operator-vul-config",
+						Namespace: "vuloperator-ns",
+					},
+					Data: tc.configData,
+				},
+			).Build()
+
+			pluginContext := vuloperator.NewPluginContext().
+				WithName(vul.Plugin).
+				WithNamespace("vuloperator-ns").
+				WithServiceAccountName("vuloperator-sa").
+				WithClient(fakeclient).
+				WithVulOperatorConfig(map[string]string{vuloperator.KeyVulnerabilityScansInSameNamespace: "true"}).
+				Get()
+			resolver := kube.NewObjectResolver(fakeclient, &kube.CompatibleObjectMapper{})
+			instance := vul.NewPlugin(fixedClock, ext.NewSimpleIDGenerator(), &resolver)
+			jobSpec, _, err := instance.GetScanJobSpec(pluginContext, workloadSpec, nil, nil)
+			assert.NoError(t, err)
+
+			containers := make([]string, 0)
+
+			for _, c := range jobSpec.Containers {
+				containers = append(containers, c.Name)
+			}
+
+			sort.Strings(containers)
+
+			assert.Equal(t, expectedContainers, containers)
+		})
+	}
+}
+
+func TestPlugin_FindIgnorePolicyKey(t *testing.T) {
+	workload := &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "name-01234abcd",
+			Namespace: "namespace",
+		},
+	}
+	testCases := []struct {
+		name        string
+		configData  map[string]string
+		expectedKey string
+	}{
+		{
+			name: "empty",
+			configData: map[string]string{
+				"other": "",
+			},
+			expectedKey: "",
+		},
+		{
+			name: "fallback",
+			configData: map[string]string{
+				"other":              "",
+				"vul.ignorePolicy": "",
+			},
+			expectedKey: "vul.ignorePolicy",
+		},
+		{
+			name: "fallback namespace",
+			configData: map[string]string{
+				"other":                        "",
+				"vul.ignorePolicy":           "",
+				"vul.ignorePolicy.namespace": "",
+			},
+			expectedKey: "vul.ignorePolicy.namespace",
+		},
+		{
+			name: "fallback namespace workload",
+			configData: map[string]string{
+				"other":                               "",
+				"vul.ignorePolicy":                  "",
+				"vul.ignorePolicy.namespace":        "",
+				"vul.ignorePolicy.namespace.name-.": "",
+			},
+			expectedKey: "vul.ignorePolicy.namespace.name-.",
+		},
+		{
+			name: "fallback namespace other-workload",
+			configData: map[string]string{
+				"other":                        "",
+				"vul.ignorePolicy":           "",
+				"vul.ignorePolicy.namespace": "",
+				"vul.ignorePolicy.namespace.name-other-.": "",
+			},
+			expectedKey: "vul.ignorePolicy.namespace",
+		},
+		{
+			name: "fallback other-namespace other-workload",
+			configData: map[string]string{
+				"other":                              "",
+				"vul.ignorePolicy":                 "",
+				"vul.ignorePolicy.namespace-other": "",
+				"vul.ignorePolicy.namespace-other.name-other-.": "",
+			},
+			expectedKey: "vul.ignorePolicy",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			config := vul.Config{
+				vuloperator.PluginConfig{
+					Data: tc.configData,
+				},
+			}
+			assert.Equal(t, tc.expectedKey, config.FindIgnorePolicyKey(workload))
+		})
+	}
+}
+
+func getReportAsString(fixture string) string {
+	f, err := os.Open("./testdata/fixture/" + fixture)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		log.Fatal(err)
+	}
+	value, err := writeBzip2AndEncode(b)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return value
+}
+func getReportAsStringnonCompressed(fixture string) string {
+	f, err := os.Open("./testdata/fixture/" + fixture)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	b, err := io.ReadAll(f)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return string(b)
+}
+
+func getScanResultVolume() corev1.Volume {
+	return corev1.Volume{
+		Name: "scanresult",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium: corev1.StorageMediumDefault,
+			},
+		},
+	}
+}
+func getTmpVolume() corev1.Volume {
+	return corev1.Volume{
+		Name: "tmp",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{
+				Medium: corev1.StorageMediumDefault,
+			},
+		},
+	}
+}
+
+func getScanResultVolumeMount() corev1.VolumeMount {
+	return corev1.VolumeMount{
+		Name:      "scanresult",
+		ReadOnly:  false,
+		MountPath: "/tmp/scan",
+	}
+}
+
+func getTmpVolumeMount() corev1.VolumeMount {
+	return corev1.VolumeMount{
+		Name:      "tmp",
+		ReadOnly:  false,
+		MountPath: "/tmp",
+	}
+}
+
+func writeBzip2AndEncode(data []byte) (string, error) {
+	var in bytes.Buffer
+	w, err := bz.NewWriter(&in, &bz.WriterConfig{})
+	if err != nil {
+		return "", err
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		return "", err
+	}
+	err = w.Close()
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(in.Bytes()), nil
+}
+
+func TestSkipDirFileEnvVars(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configName string
+		skipType   string
+		envKey     string
+		workload   *corev1.Pod
+		configKey  string
+		want       corev1.EnvVar
+	}{
+		{
+			name:       "read skip file from annotation",
+			configName: "vul-operator-vul-config",
+			skipType:   vul.SkipFilesAnnotation,
+			envKey:     "VUL_SKIP_FILES",
+			configKey:  "vul.skipFiles",
+			workload: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+					Annotations: map[string]string{
+						vul.SkipFilesAnnotation: "/src/Gemfile.lock,/examplebinary",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			want: corev1.EnvVar{
+				Name:  "VUL_SKIP_FILES",
+				Value: "/src/Gemfile.lock,/examplebinary",
+			},
+		},
+		{
+			name:       "read skip file from config",
+			configName: "vul-operator-vul-config",
+			skipType:   vul.SkipFilesAnnotation,
+			envKey:     "VUL_SKIP_FILES",
+			configKey:  "vul.skipFiles",
+			workload: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			want: corev1.EnvVar{
+				Name: "VUL_SKIP_FILES",
+				ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "vul-operator-vul-config",
+						},
+						Key:      "vul.skipFiles",
+						Optional: pointer.Bool(true),
+					},
+				},
+			},
+		},
+		{
+			name:       "read skip dir from annotation",
+			configName: "vul-operator-vul-config",
+			skipType:   vul.SkipDirsAnnotation,
+			envKey:     "VUL_SKIP_DIRS",
+			configKey:  "vul.skipDirs",
+			workload: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+					Annotations: map[string]string{
+						vul.SkipDirsAnnotation: "/src/",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			want: corev1.EnvVar{
+				Name:  "VUL_SKIP_DIRS",
+				Value: "/src/",
+			},
+		},
+		{
+			name:       "read skip dir from config",
+			configName: "vul-operator-vul-config",
+			skipType:   vul.SkipDirsAnnotation,
+			envKey:     "VUL_SKIP_DIRS",
+			configKey:  "vul.skipDirs",
+			workload: &corev1.Pod{
+				TypeMeta: metav1.TypeMeta{
+					Kind:       "Pod",
+					APIVersion: "v1",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "nginx",
+					Namespace: "prod-ns",
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "nginx",
+							Image: "nginx:1.16",
+						},
+					},
+				},
+			},
+			want: corev1.EnvVar{
+				Name: "VUL_SKIP_DIRS",
+				ValueFrom: &corev1.EnvVarSource{
+					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "vul-operator-vul-config",
+						},
+						Key:      "vul.skipDirs",
+						Optional: pointer.Bool(true),
+					},
+				},
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := vul.ConfigWorkloadAnnotationEnvVars(tc.workload, tc.skipType, tc.envKey, tc.configName, tc.configKey)
+			assert.Equal(t, got, tc.want)
+		})
+	}
+}
+
+func TestGetClientServerSkipUpdate(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configData vul.Config
+		want       bool
+	}{
+		{
+			name: "clientServerSkipUpdate param set to true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.clientServerSkipUpdate": "true",
+				},
+			}},
+			want: true,
+		},
+		{
+			name: "clientServerSkipUpdate param set to false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.clientServerSkipUpdate": "false",
+				},
+			}},
+			want: false,
+		},
+		{
+			name: "clientServerSkipUpdate param set to no valid value",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.clientServerSkipUpdate": "false2",
+				},
+			}},
+			want: false,
+		},
+		{
+			name: "clientServerSkipUpdate param set to no value",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{},
+			}},
+			want: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.configData.GetClientServerSkipUpdate()
+			assert.Equal(t, got, tc.want)
+
+		})
+	}
+}
+
+func TestGetSkipJavaDBUpdate(t *testing.T) {
+	testCases := []struct {
+		name       string
+		configData vul.Config
+		want       bool
+	}{
+		{
+			name: "skipJavaDBUpdate param set to true",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.skipJavaDBUpdate": "true",
+				},
+			}},
+			want: true,
+		},
+		{
+			name: "skipJavaDBUpdate param set to false",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.skipJavaDBUpdate": "false",
+				},
+			}},
+			want: false,
+		},
+		{
+			name: "skipJavaDBUpdate param set to no valid value",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{
+					"vul.skipJavaDBUpdate": "false2",
+				},
+			}},
+			want: false,
+		},
+		{
+			name: "skipJavaDBUpdate param set to no  value",
+			configData: vul.Config{PluginConfig: vuloperator.PluginConfig{
+				Data: map[string]string{},
+			}},
+			want: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.configData.GetSkipJavaDBUpdate()
+			assert.Equal(t, got, tc.want)
+
+		})
+	}
+}

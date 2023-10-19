@@ -1,4 +1,4 @@
-You have installed Starboard Operator in the {{ .Release.Namespace }} namespace.
+You have installed Vul Operator in the {{ include "vul-operator.namespace" . }} namespace.
 It is configured to discover Kubernetes workloads and resources in
 {{ tpl .Values.targetNamespaces . | default "all" }} namespace(s).
 
@@ -10,10 +10,6 @@ Inspect created ConfigAuditReports by:
 
     kubectl get configauditreports --all-namespaces -o wide
 
-Inspect created CISKubeBenchReports by:
+Inspect the work log of vul-operator by:
 
-    kubectl get ciskubebenchreports -o wide
-
-Inspect the work log of starboard-operator by:
-
-    kubectl logs -n {{ .Release.Namespace }} deployment/{{ include "starboard-operator.fullname" . }}
+    kubectl logs -n {{ include "vul-operator.namespace" . }} deployment/{{ include "vul-operator.fullname" . }}

@@ -1,6 +1,6 @@
 # Writing Custom Configuration Audit Policies
 
-Starboard ships with a set of [Built-in Configuration Audit Policies] defined as OPA [Rego] policies. You can also
+vul-operator ships with a set of [Built-in Configuration Audit Policies] defined as OPA [Rego] policies. You can also
 define custom policies and associate them with applicable Kubernetes resources to extend basic configuration audit
 functionality.
 
@@ -14,38 +14,41 @@ To define such a policy, you must first define its metadata. This includes setti
 `__rego_metadata__` rule, which defines the following composite value:
 
 ```opa
-package starboard.policy.k8s.custom
+package vuloperator.policy.k8s.custom
+
+import data.lib.result
+import future.keywords.in
 
 __rego_metadata__ := {
-	"id": "recommended_labels",
-	"title": "Recommended labels",
-	"severity": "LOW",
-	"type": "Kubernetes Security Check",
-	"description": "A common set of labels allows tools to work interoperably, describing objects in a common manner that all tools can understand.",
-	"recommended_actions": "Take full advantage of using recommended labels and apply them on every resource object.",
-	"url": "https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/",
+    "id": "recommended_labels",
+    "title": "Recommended labels",
+    "severity": "LOW",
+    "type": "Kubernetes Security Check",
+    "description": "A common set of labels allows tools to work interoperably, describing objects in a common manner that all tools can understand.",
+    "recommended_actions": "Take full advantage of using recommended labels and apply them on every resource object.",
+    "url": "https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/",
 }
 ```
 
-Note that the `recommended_labels` policy in scoped to the `starboard.policy.k8s.custom` package to avoid naming
-collision with built-in policies that are pre-installed with Starboard.
+Note that the `recommended_labels` policy in scoped to the `vuloperator.policy.k8s.custom` package to avoid naming
+collision with built-in policies that are pre-installed with vul-operator.
 
 Once we've got our metadata defined, we need to create the logic of the policy, which is done in the `deny` or `warn`
 rule.
 
 ```opa
-recommended_labels := [
-	"app.kubernetes.io/name",
-	"app.kubernetes.io/version",
-]
+
+__rego_input__ := {
+	"combine": false,
+	"selector": [{"type": "kubernetes"}],
+}
 
 deny[res] {
-	provided := {label | input.metadata.labels[label]}
-	required := {label | label := recommended_labels[_]}
-	missing := required - provided
-	count(missing) > 0
-	msg := sprintf("You must provide labels: %v", [missing])
-	res := {"msg": msg}
+	input.kind == "Pod"
+	some container in input.spec.containers
+	not startswith(container.image, "hooli.com")
+	msg := sprintf("Image '%v' comes from untrusted registry", [container.image])
+	res := result.new(msg, container)
 }
 ```
 
@@ -55,7 +58,7 @@ specified by the `input` resource object from the set of recommended labels. The
 called `missing`. Finally, we check if the `missing` set is empty. If not, the `deny` rule fails with the appropriate
 message.
 
-The `input` document is set by Starboard to a Kubernetes resource when the policy is evaluated. For pods, it would look
+The `input` document is set by vul-operator to a Kubernetes resource when the policy is evaluated. For pods, it would look
 something like the following listing:
 
 ```json
@@ -90,59 +93,61 @@ You can find the complete Rego code listing in [recommended_labels.rego](./recom
 ## Testing a Policy
 
 Now that you've created the policy, you need to test it to make sure it works as intended. To do that, add policy code to
-the `starboard-policies-config` ConfigMap and associate it with any (`*`) Kubernetes resource kind:
+the `vul-operator-policies-config` ConfigMap and associate it with any (`*`) Kubernetes resource kind:
 
 ```yaml
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: starboard-policies-config
-  namespace: starboard-system
+  name: vul-operator-policies-config
+  namespace: vul-system
   labels:
-    app.kubernetes.io/name: starboard-operator
-    app.kubernetes.io/instance: starboard-operator
+    app.kubernetes.io/name: vul-operator
+    app.kubernetes.io/instance: vul-operator
     app.kubernetes.io/version: "{{ git.tag[1:] }}"
     app.kubernetes.io/managed-by: kubectl
 data:
   policy.recommended_labels.kinds: "*"
   policy.recommended_labels.rego: |
-    package starboard.policy.k8s.custom
+  package vuloperator.policy.k8s.custom
 
-    __rego_metadata__ := {
-    	"id": "recommended_labels",
-    	"title": "Recommended labels",
-    	"severity": "LOW",
-    	"type": "Kubernetes Security Check",
-    	"description": "A common set of labels allows tools to work interoperably, describing objects in a common manner that all tools can understand",
-    	"recommended_actions": "Take full advantage of using recommended labels and apply them on every resource object.",
-    	"url": "https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/",
-    }
+   import data.lib.result
+   import future.keywords.in
 
-    recommended_labels := [
-    	"app.kubernetes.io/name",
-    	"app.kubernetes.io/version",
-    ]
+   __rego_metadata__ := {
+      "id": "recommended_labels",
+      "title": "Recommended labels",
+      "severity": "LOW",
+      "type": "Kubernetes Security Check",
+      "description": "A common set of labels allows tools to work interoperably, describing objects in a common manner that all tools can understand.",
+      "recommended_actions": "Take full advantage of using recommended labels and apply them on every resource object.",
+      "url": "https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/",
+  }
 
-    deny[res] {
-    	provided := {label | input.metadata.labels[label]}
-    	required := {label | label := recommended_labels[_]}
-    	missing := required - provided
-    	count(missing) > 0
-    	msg := sprintf("You must provide labels: %v", [missing])
-    	res := {"msg": msg}
-    }
+   __rego_input__ := {
+      "combine": false,
+      "selector": [{"type": "kubernetes"}],
+  }
+
+   deny[res] {
+      input.kind == "Pod"
+      some container in input.spec.containers
+      not startswith(container.image, "hooli.com")
+      msg := sprintf("Image '%v' comes from untrusted registry", [container.image])
+      res := result.new(msg, container)
+  }
 ```
 
-In this example, to add a new policy, you must define two data entries in the `starboard-policies-config`
+In this example, to add a new policy, you must define two data entries in the `vul-operator-policies-config`
 ConfigMap:
 
 1. The `policy.<your_policy_name>.kinds` entry is used to designate applicable Kubernetes resources as a comma separated
    list of Kubernetes kinds (e.g., `Pod,ConfigMap,NetworkPolicy`). There is also a special value (`Workload`) that you
-   can use to select all Kubernetes workloads, and (`*`) to select all Kubernetes resources recognized by Starboard.
+   can use to select all Kubernetes workloads, and (`*`) to select all Kubernetes resources recognized by vul-operator.
 2. The `policy.<your_policy_name>.rego` entry holds the policy Rego code.
 
-Starboard automatically detects policies added to the `starboard-policies-config` ConfigMap and immediately rescans
+vul-operator automatically detects policies added to the `vul-operator-policies-config` ConfigMap and immediately rescans
 applicable Kubernetes resources.
 
 Let's create the `test` ConfigMap without recommended labels:
@@ -158,7 +163,7 @@ that's failing:
 ```console
 $ kubectl get configauditreport configmap-test -o wide
 NAME             SCANNER     AGE   CRITICAL  HIGH   MEDIUM   LOW
-configmap-test   Starboard   24s   0         0      0        1
+configmap-test   vul-operator   24s   0         0      0        1
 ```
 
 If you describe the report you'll see that it's failing because of our custom policy:
@@ -168,9 +173,9 @@ apiVersion: khulnasoft-lab.github.io/v1alpha1
 kind: ConfigAuditReport
 metadata:
   labels:
-    starboard.resource.kind: ConfigMap
-    starboard.resource.name: test
-    starboard.resource.namespace: default
+    vul-operator.resource.kind: ConfigMap
+    vul-operator.resource.name: test
+    vul-operator.resource.namespace: default
     plugin-config-hash: df767ff5f
     resource-spec-hash: 7c96769cf
   name: configmap-test
@@ -183,8 +188,8 @@ metadata:
     name: test
 report:
   scanner:
-    name: Starboard
-    vendor: KhulnaSoft
+    name: vul-operator
+    vendor: Khulnasoft Security
     version: {{ git.tag }}
   summary:
     criticalCount: 0
@@ -213,6 +218,6 @@ report:
 6. The flag indicating whether the configuration audit check has failed or passed.
 7. The array of messages with details in case of failure.
 
-[Built-in Configuration Audit Policies]: ./../configuration-auditing/built-in-policies.md
+[Built-in Configuration Audit Policies]: ../docs/configuration-auditing/built-in-policies.md
 [Rego]: https://www.openpolicyagent.org/docs/latest/#rego
 [recommended labels]: https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels

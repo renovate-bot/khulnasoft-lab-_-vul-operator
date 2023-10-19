@@ -1,10 +1,10 @@
 package utils
 
 import (
-	"time"
-
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
 	"github.com/gorhill/cronexpr"
-	"github.com/khulnasoft-lab/starboard/pkg/ext"
+	"k8s.io/utils/pointer"
+	"time"
 )
 
 // NextCronDuration check if next cron activation time has exceeded if so return true
@@ -32,4 +32,11 @@ func timeToExpiration(expiresAt time.Time, clock ext.Clock) time.Duration {
 func IsTTLExpired(ttl time.Duration, creationTime time.Time, clock ext.Clock) (bool, time.Duration) {
 	durationToTTLExpiration := timeToExpiration(creationTime.Add(ttl), clock)
 	return DurationExceeded(durationToTTLExpiration), durationToTTLExpiration
+}
+
+func DurationSecondsPtr(d time.Duration) *int64 {
+	if d > 0 {
+		return pointer.Int64(int64(d.Seconds()))
+	}
+	return nil
 }

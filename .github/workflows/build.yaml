@@ -1,156 +1,124 @@
 ---
-# This workflow is triggered on push or pull request for the main branch.
-# It runs tests and various checks to validate that the proposed changes
-# will not introduce any regression after merging the code to the main branch.
 name: Build
 on:
   push:
     branches:
       - main
     paths-ignore:
-      - '.github/ISSUE_TEMPLATE/*.md'
-      - '*.md'
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'LICENSE'
-      - 'NOTICE'
+      - .github/ISSUE_TEMPLATE/*.md
+      - "*.md"
+      - docs/**
+      - mkdocs.yml
+      - LICENSE
+      - NOTICE
   pull_request:
     branches:
       - main
     paths-ignore:
-      - '.github/ISSUE_TEMPLATE/*.md'
-      - '*.md'
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'LICENSE'
-      - 'NOTICE'
-
+      - .github/ISSUE_TEMPLATE/*.md
+      - "*.md"
+      - docs/**
+      - mkdocs.yml
+      - LICENSE
+      - NOTICE
 env:
-  GO_VERSION: "1.19"
-  KIND_VERSION: "v0.17.0"
-  KIND_IMAGE: "kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6"
-
-# Disable permissions granted to the GITHUB_TOKEN for all the available scopes.
+  GO_VERSION: 1.20.4
+  KIND_VERSION: v0.17.0
+  KIND_IMAGE: kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6
 permissions: {}
-
-# Cancel any in-flight jobs for the same PR branch so there's only one active at a time.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   verify-code:
     name: Verify code
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Cached Go dependencies
-        uses: actions/cache@v3
+        uses: actions/checkout@v4
+      - name: Install tools
+        uses: khulnasoftproj/khulnasoft-installer@v2.1.2
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          khulnasoft_version: v1.25.0
       - name: Verify Go code
-        uses: golangci/golangci-lint-action@v3.4.0
+        uses: golangci/golangci-lint-action@v3.7.0
         with:
           args: --verbose
-          version: latest
+          version: v1.54.2
           skip-pkg-cache: true
           skip-build-cache: true
       - name: Verify YAML code
         uses: ibiqlik/action-yamllint@v3
       - name: Vendor Go modules
-        run: go mod vendor
-      - name: Verify generated Go code
-        run: GOPATH="$(go env GOPATH)" ./hack/verify-codegen.sh
-  unit-tests:
-    name: Run unit tests
-    runs-on: ubuntu-20.04
+        run: go mod tidy
+      - name: Verify all generated
+        run: mage generate:verify
+      - name: Verify Generated Helm docs
+        run: mage generate:verifydocs
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
     steps:
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Checkout code
-        uses: actions/checkout@v3
-      - uses: actions/cache@v3
+        uses: actions/checkout@v4
+      - name: Install tools
+        uses: khulnasoftproj/khulnasoft-installer@v2.1.2
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          khulnasoft_version: v1.25.0
       - name: Run unit tests
-        run: make unit-tests
+        run: mage test:unit
       - name: Upload code coverage
         uses: codecov/codecov-action@v3
         with:
           files: ./coverage.txt
-  itest-starboard-cli:
-    name: Run integration tests / Starboard CLI
+  operator-envtest:
+    name: Run Operator envtest
     needs:
-      - unit-tests
+      - tests
       - verify-code
-    runs-on: ubuntu-20.04
-    timeout-minutes: 15
+    runs-on: ubuntu-latest
     steps:
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Checkout code
-        uses: actions/checkout@v3
-      - uses: actions/cache@v3
+        uses: actions/checkout@v4
+      - name: Install tools
+        uses: khulnasoftproj/khulnasoft-installer@v2.1.2
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Setup Kubernetes cluster (KIND)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: ${{ env.KIND_VERSION }}
-          image: ${{ env.KIND_IMAGE }}
-      - name: Test connection to Kubernetes cluster
-        run: |
-          kubectl cluster-info
-          kubectl wait --for=condition=Ready nodes --all --timeout=300s
-          kubectl describe node
-      - name: Run integration tests
-        run: |
-          make itests-starboard
-        env:
-          KUBECONFIG: /home/runner/.kube/config
-          STARBOARD_TEST_CLI_LOG_LEVEL: "0"
+          khulnasoft_version: v1.25.0
+      - name: Run envtest
+        run: mage test:envtest
       - name: Upload code coverage
         uses: codecov/codecov-action@v3
         with:
-          files: ./itest/starboard/coverage.txt
-  itest-starboard-operator:
-    name: Run integration tests / Starboard Operator
+          files: ./coverage.txt
+  itest-vul-operator:
+    name: Run integration tests
     needs:
-      - unit-tests
-      - verify-code
-    runs-on: ubuntu-20.04
+      - operator-envtest
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Checkout code
-        uses: actions/checkout@v3
-      - uses: actions/cache@v3
+        uses: actions/checkout@v4
+      - name: Install tools
+        uses: khulnasoftproj/khulnasoft-installer@v2.1.2
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          khulnasoft_version: v1.25.0
       - name: Setup Kubernetes cluster (KIND)
         uses: engineerd/setup-kind@v0.5.0
         with:
@@ -163,101 +131,106 @@ jobs:
           kubectl describe node
       - name: Run integration tests
         run: |
-          kubectl apply -f deploy/crd/vulnerabilityreports.crd.yaml \
-            -f deploy/crd/configauditreports.crd.yaml \
-            -f deploy/crd/clusterconfigauditreports.crd.yaml \
-            -f deploy/crd/clustercompliancereports.crd.yaml \
-            -f deploy/crd/clustercompliancedetailreports.crd.yaml \
-            -f deploy/crd/ciskubebenchreports.crd.yaml
-          kubectl apply -f deploy/static/01-starboard-operator.ns.yaml \
-            -f deploy/static/02-starboard-operator.rbac.yaml
-          kubectl apply -f deploy/static/03-starboard-operator.config.yaml \
-            -f deploy/static/04-starboard-operator.policies.yaml
-          make itests-starboard-operator
+          kubectl create -k deploy/static
+          mage test:integration
         env:
           KUBECONFIG: /home/runner/.kube/config
-          OPERATOR_NAMESPACE: starboard-system
+          OPERATOR_NAMESPACE: vul-system
           OPERATOR_TARGET_NAMESPACES: default
       - name: Upload code coverage
         uses: codecov/codecov-action@v3
         with:
-          files: ./itest/starboard-operator/coverage.txt
-  integration-operator-conftest:
-    name: Integration / Operator / Conftest
+          files: ./itest/vul-operator/coverage.txt
+  e2e-testing:
+    name: Run end to end testing
     needs:
-      - unit-tests
-      - verify-code
-    runs-on: ubuntu-20.04
-    timeout-minutes: 15
+      - itest-vul-operator
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_CLI_EXPERIMENTAL: enabled
     steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Available platforms
+        run: echo ${{ steps.buildx.outputs.platforms }}
       - name: Setup Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Checkout code
-        uses: actions/checkout@v3
-      - uses: actions/cache@v3
+        uses: actions/checkout@v4
+      - name: Release snapshot
+        uses: goreleaser/goreleaser-action@v5
         with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
-      - name: Setup Kubernetes cluster (KIND)
-        uses: engineerd/setup-kind@v0.5.0
-        with:
-          version: ${{ env.KIND_VERSION }}
-          image: ${{ env.KIND_IMAGE }}
+          version: v1.7.0
+          args: release -f=goreleaser-e2e.yaml --snapshot --skip-publish --rm-dist
+      - name: Install kind and create cluster
+        run: >
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/${{ env.KIND_VERSION
+          }}/kind-linux-amd64
+
+          chmod +x ./kind
+
+          sudo mv ./kind /usr/local/bin/kind
+
+          kind create cluster
+
+          curl -LO https://dl.k8s.io/release/v1.26.0/bin/linux/amd64/kubectl
+
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
       - name: Test connection to Kubernetes cluster
         run: |
           kubectl cluster-info
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           kubectl describe node
-      - name: Run integration tests
+      - name: Load operator image to cluster
+        run: >
+          docker tag ghcr.io/khulnasoft-lab/vul-operator:${{ github.sha }}-amd64
+          ghcr.io/khulnasoft-lab/vul-operator:e2e
+
+          docker save -o vul-operator.tar ghcr.io/khulnasoft-lab/vul-operator:e2e
+
+          kind load image-archive vul-operator.tar
+      - name: Init E2E tests (Install kuttl & helm)
+        run: >
+          mkdir -p ./bin
+
+          curl -L https://github.com/kudobuilder/kuttl/releases/download/v0.15.0/kubectl-kuttl_0.15.0_linux_x86_64 -o ./bin/kuttl;
+
+          chmod +x ./bin/kuttl;
+
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+
+          chmod 700 get_helm.sh
+
+          ./get_helm.sh
+      - name: Image scan mode producing vulnerability,misconfig and exposedsecrets
+          reports tests
+        run: >
+          ./bin/kuttl test --start-kind=false --config tests/config/image-mode.yaml
+
+          ./tests/resources-cleanup.sh > /dev/null 2>&1
+      - name: Files System scan mode producing vulnerability,misconfig and
+          exposedsecrets reports tests
         run: |
-          kubectl apply -f deploy/crd/vulnerabilityreports.crd.yaml \
-            -f deploy/crd/configauditreports.crd.yaml \
-            -f deploy/crd/clusterconfigauditreports.crd.yaml \
-            -f deploy/crd/clustercompliancereports.crd.yaml \
-            -f deploy/crd/clustercompliancedetailreports.crd.yaml \
-            -f deploy/crd/ciskubebenchreports.crd.yaml
-          kubectl apply -f deploy/static/01-starboard-operator.ns.yaml \
-            -f deploy/static/02-starboard-operator.rbac.yaml
-          kubectl apply -f deploy/static/03-starboard-operator.config.yaml
-          make integration-operator-conftest
-        env:
-          KUBECONFIG: /home/runner/.kube/config
-      - name: Upload code coverage
-        uses: codecov/codecov-action@v3
-        with:
-          files: ./itest/starboard-operator/configauditreport/conftest/coverage.txt
-  test-helm-chart:
-    if: "false"  # TODO It's broken on a release candidate PRs because it's using container image that has not been released yet.
-    name: Test Helm Chart
-    needs:
-      - itest-starboard-cli
-      - itest-starboard-operator
-      - integration-operator-conftest
-    runs-on: ubuntu-20.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Install Helm
-        uses: azure/setup-helm@18bc76811624f360dbd7f18c2d4ecb32c7b87bab  # v1.1
-        with:
-          version: v3.5.0
-      - name: Set up python
-        uses: actions/setup-python@98f2ad02fd48d057ee3b4d4f66525b231c3e52b6  # v2.3.0
-        with:
-          python-version: 3.7
-      - name: Setup Chart Linting
-        id: lint
-        uses: helm/chart-testing-action@dae259e86a35ff09145c0805e2d7dd3f7207064a  # v2.1.0
-      - name: Setup Kubernetes cluster (KIND)
-        uses: helm/kind-action@94729529f85113b88f4f819c17ce61382e6d8478  # v1.2.0
-        with:
-          version: ${{ env.KIND_VERSION }}
-          image: ${{ env.KIND_IMAGE }}
-      - name: Run chart-testing
-        run: ct lint-and-install --validate-maintainers=false --charts deploy/helm
+          ./bin/kuttl test --start-kind=false --config tests/config/fs-mode.yaml
+          ./tests/resources-cleanup.sh > /dev/null 2>&1
+      - name: Client/server mode producing vulnerability,misconfig and exposedsecrets
+          reports tests
+        run: >
+          ./bin/kuttl test --start-kind=false --config
+          tests/config/client-server.yaml
+
+          ./tests/resources-cleanup.sh > /dev/null 2>&1
+      - name: Node scan producing cluster infraassessment report
+        run: >
+          ./bin/kuttl test --start-kind=false --config
+          tests/config/node-collector.yaml
+
+          ./tests/resources-cleanup.sh > /dev/null 2>&1
+      - name: Delete kind cluster
+        run: |
+          kind delete cluster

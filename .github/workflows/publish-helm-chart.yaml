@@ -1,42 +1,40 @@
 ---
 # This is a manually triggered workflow to package and upload the Helm chart from the
-# main branch to KhulnaSoft repository at https://github.com/khulnasoft-lab/helm-charts.
+# main branch to Khulnasoft Security repository at https://github.com/khulnasoft-lab/helm-charts.
 name: Publish Helm chart
-
 on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: The branch, tag or SHA to publish, e.g. v0.0.1
-        required: true
+  repository_dispatch:
+    types: [publish-chart]
+    paths:
+      - deploy/helm/Chart.yaml
 env:
   HELM_REP: helm-charts
   GH_OWNER: khulnasoft-lab
   CHART_DIR: deploy/helm
-  KIND_VERSION: "v0.11.1"
-  KIND_IMAGE: "kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6"
+  KIND_VERSION: v0.17.0
+  KIND_IMAGE: kindest/node:v1.21.1@sha256:69860bda5563ac81e3c0057d654b5253219618a22ec3a346306239bba8cfa1a6
 jobs:
   release:
-    runs-on: ubuntu-20.04
+    # this job will only run if the PR has been merged
+    if: github.event.client_payload.action == 'chart-release' || github.event.client_payload.action == 'chart-and-app-release'
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
       - name: Install Helm
-        uses: azure/setup-helm@18bc76811624f360dbd7f18c2d4ecb32c7b87bab  # v1.1
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v1.1
         with:
           version: v3.5.0
       - name: Set up python
-        uses: actions/setup-python@98f2ad02fd48d057ee3b4d4f66525b231c3e52b6
+        uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236
         with:
           python-version: 3.7
       - name: Setup Chart Linting
         id: lint
-        uses: helm/chart-testing-action@dae259e86a35ff09145c0805e2d7dd3f7207064a  # v2.1.0
+        uses: helm/chart-testing-action@e8788873172cb653a90ca2e819d79d65a66d4e76 # v2.1.0
       - name: Setup Kubernetes cluster (KIND)
-        uses: helm/kind-action@94729529f85113b88f4f819c17ce61382e6d8478  # v1.2.0
+        uses: helm/kind-action@v1.8.0 # v1.5.0
         with:
           version: ${{ env.KIND_VERSION }}
           image: ${{ env.KIND_IMAGE }}
@@ -59,13 +57,27 @@ jobs:
         run: |
           ./cr index -o ${{ env.GH_OWNER }} -r ${{ env.HELM_REP }} -c https://${{ env.GH_OWNER }}.github.io/${{ env.HELM_REP }}/ -i index.yaml
       - name: Push index file
-        uses: dmnemec/copy_file_to_another_repo_action@c93037aa10fa8893de271f19978c980d0c1a9b37  # v1.1.1
+        uses: dmnemec/copy_file_to_another_repo_action@c93037aa10fa8893de271f19978c980d0c1a9b37 # v1.1.1
         env:
           API_TOKEN_GITHUB: ${{ secrets.ORG_REPO_TOKEN }}
         with:
-          source_file: 'index.yaml'
-          destination_repo: '${{ env.GH_OWNER }}/${{ env.HELM_REP }}'
-          destination_folder: '.'
-          destination_branch: 'gh-pages'
+          source_file: "index.yaml"
+          destination_repo: "${{ env.GH_OWNER }}/${{ env.HELM_REP }}"
+          destination_folder: "."
+          destination_branch: "gh-pages"
           user_email: khulnasoft-bot@users.noreply.github.com
-          user_name: 'khulnasoft-bot'
+          user_name: "khulnasoft-bot"
+
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          latest_tag=$(git describe --tags --abbrev=0)
+          echo "::set-output name=tag::$latest_tag"
+
+      - name: Repository Dispatch Publish docs
+        if: github.event.client_payload.action == 'chart-and-app-release'
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: publish-docs
+          client-payload: '{"action": "docs-release", "tag": "${{ steps.latest_tag.outputs.tag }}"}'

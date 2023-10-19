@@ -1,0 +1,121 @@
+{{- if eq .Values.vulOperator.vulnerabilityReportsPlugin "Vul" }}
+{{- if .Values.vul.createConfig }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vul-operator-vul-config
+  namespace: {{ include "vul-operator.namespace" $ }}
+  labels: {{- include "vul-operator.labels" $ | nindent 4 }}
+data:
+  vul.repository: "{{ required ".Values.vul.image.registry is required" ( include "global.imageRegistry" . | default .Values.vul.image.registry ) }}/{{ required ".Values.vul.image.repository is required" .Values.vul.image.repository }}"
+  vul.tag: {{ required ".Values.vul.image.tag is required" .Values.vul.image.tag | quote }}
+  {{- with .Values.vul.image.imagePullSecret }}
+  vul.imagePullSecret: {{ . | quote }}
+  {{- end }}
+   {{- with .Values.vul.image.pullPolicy }}
+  vul.imagePullPolicy: {{ . | quote }}
+  {{- end }}
+  vul.additionalVulnerabilityReportFields: {{ .Values.vul.additionalVulnerabilityReportFields | quote}}
+  {{- with .Values.vul.httpProxy }}
+  vul.httpProxy: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.httpsProxy }}
+  vul.httpsProxy: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.serverInsecure }}
+  vul.serverInsecure: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.sslCertDir }}
+  vul.sslCertDir: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.noProxy }}
+  vul.noProxy: {{ . | quote }}
+  {{- end }}
+  {{- range $key, $registry := .Values.vul.nonSslRegistries }}
+  vul.nonSslRegistry.{{ $key }}: {{ $registry | quote }}
+  {{- end }}
+  {{- range $key, $registry := .Values.vul.insecureRegistries }}
+  vul.insecureRegistry.{{ $key }}: {{ $registry | quote }}
+  {{- end }}
+  {{- range $key, $registry := .Values.vul.registry.mirror }}
+  vul.registry.mirror.{{ $key }}: {{ $registry | quote }}
+  {{- end }}
+  vul.severity: {{ .Values.vul.severity | quote }}
+  vul.slow: {{ .Values.vul.slow | quote }}
+  vul.skipJavaDBUpdate: {{ .Values.vul.skipJavaDBUpdate | quote }}
+  vul.dbRepository: "{{ .Values.vul.dbRegistry }}/{{ .Values.vul.dbRepository }}"
+  vul.javaDbRepository: "{{ .Values.vul.javaDbRegistry }}/{{ .Values.vul.javaDbRepository }}"
+  vul.command: {{ .Values.vul.command | quote }}
+  {{- with .Values.vul.skipDirs }}
+  vul.skipDirs: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.vulnType }}
+  vul.vulnType: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.dbRepositoryInsecure }}
+  vul.dbRepositoryInsecure: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.useBuiltinRegoPolicies }}
+  vul.useBuiltinRegoPolicies: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.offlineScan }}
+  vul.offlineScan: {{ . | quote }}
+  {{- end }}
+  vul.supportedConfigAuditKinds: {{ .Values.vul.supportedConfigAuditKinds | quote }}
+  {{- with .Values.vul.ignoreUnfixed }}
+  vul.ignoreUnfixed: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.timeout }}
+  vul.timeout: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.vul.ignoreFile }}
+  vul.ignoreFile: |
+    {{- . | trim | nindent 4 }}
+  {{- end }}
+  {{- range $k, $v := .Values.vul }}
+  {{- if hasPrefix "ignorePolicy" $k }}
+  vul.{{- $k }}: |
+    {{- $v | trim | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.operator.builtInVulServer }}
+  vul.serverURL: {{ printf "http://%s.%s:%s" .Values.vul.serverServiceName (include "vul-operator.namespace" .) "4954"  | quote }}
+  vul.mode: "ClientServer"
+  {{- else }}
+  vul.mode: {{ .Values.vul.mode | quote }}
+  {{- if eq .Values.vul.mode "ClientServer" }}
+  vul.serverURL: {{ required ".Values.vul.serverURL is required" .Values.vul.serverURL | quote }}
+  {{- with .Values.vul.clientServerSkipUpdate }}
+  vul.clientServerSkipUpdate: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- with dig "resources" "requests" "cpu" "" .Values.vul }}
+  vul.resources.requests.cpu: {{ . | quote }}
+  {{- end }}
+  {{- with dig "resources" "requests" "memory" "" .Values.vul }}
+  vul.resources.requests.memory: {{ . | quote }}
+  {{- end }}
+  {{- with dig "resources" "requests" "ephemeralStorage" "" .Values.vul }}
+  vul.resources.requests.ephemeral-storage: {{ . | quote }}
+  {{- end }}
+  {{- with dig "resources" "limits" "cpu" "" .Values.vul }}
+  vul.resources.limits.cpu: {{ . | quote }}
+  {{- end }}
+  {{- with dig "resources" "limits" "memory" "" .Values.vul }}
+  vul.resources.limits.memory: {{ . | quote }}
+  {{- end }}
+  {{- with dig "resources" "limits" "ephemeralStorage" "" .Values.vul }}
+  vul.resources.limits.ephemeral-storage: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.operator.builtInVulServer }}
+  VUL_LISTEN: "0.0.0.0:4954"
+  VUL_CACHE_DIR: "/home/scanner/.cache/vul"
+  VUL_DEBUG: {{ .Values.vul.debug | quote }}
+  VUL_SKIP_DB_UPDATE: "false"
+  VUL_DB_REPOSITORY: "{{ .Values.vul.dbRegistry }}/{{ .Values.vul.dbRepository }}"
+  {{- end }}
+{{- end }}
+{{- end }}

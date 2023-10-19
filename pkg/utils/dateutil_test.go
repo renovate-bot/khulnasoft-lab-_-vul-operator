@@ -1,11 +1,10 @@
 package utils
 
 import (
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
-
-	"github.com/khulnasoft-lab/starboard/pkg/ext"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestNextCronDuration(t *testing.T) {

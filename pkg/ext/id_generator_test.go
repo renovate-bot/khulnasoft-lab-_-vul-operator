@@ -3,7 +3,7 @@ package ext_test
 import (
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/ext"
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
 	"github.com/stretchr/testify/assert"
 )
 

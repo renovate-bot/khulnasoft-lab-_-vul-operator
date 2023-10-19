@@ -2,10 +2,8 @@ package configauditreport
 
 import (
 	"context"
-	"fmt"
-
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,22 +22,15 @@ type Writer interface {
 
 // Reader is the interface that wraps methods for finding v1alpha1.ConfigAuditReport
 // and v1alpha1.ClusterConfigAuditReport objects.
-// TODO(danielpacak): Consider returning starboard.ResourceNotFound error instead of returning nil.
 type Reader interface {
 
 	// FindReportByOwner returns a v1alpha1.ConfigAuditReport owned by the given
 	// kube.ObjectRef or nil if the report is not found.
-	FindReportByOwner(ctx context.Context, owner kube.ObjectRef) (*v1alpha1.ConfigAuditReport, error)
-
-	// FindReportByOwnerInHierarchy is similar to FindReportByOwner except that it tries to find
-	// a v1alpha1.ConfigAuditReport object owned by related Kubernetes objects.
-	// For example, if the given owner is a Deployment, but a report is owned by the
-	// active ReplicaSet (current revision) this method will return the report.
-	FindReportByOwnerInHierarchy(ctx context.Context, owner kube.ObjectRef) (*v1alpha1.ConfigAuditReport, error)
+	FindReportByOwner(ctx context.Context, owner kube.ObjectRef) (interface{}, error)
 
 	// FindClusterReportByOwner returns a v1alpha1.ClusterConfigAuditReport owned by the given
 	// kube.ObjectRef or nil if the report is not found.
-	FindClusterReportByOwner(ctx context.Context, owner kube.ObjectRef) (*v1alpha1.ClusterConfigAuditReport, error)
+	FindClusterReportByOwner(ctx context.Context, owner kube.ObjectRef) (interface{}, error)
 }
 
 type ReadWriter interface {
@@ -54,9 +45,9 @@ type readWriter struct {
 // NewReadWriter constructs a new ReadWriter which is using the client package
 // provided by the controller-runtime libraries for interacting with the
 // Kubernetes API server.
-func NewReadWriter(resolver *kube.ObjectResolver) ReadWriter {
+func NewReadWriter(ObjectResolver *kube.ObjectResolver) ReadWriter {
 	return &readWriter{
-		ObjectResolver: resolver,
+		ObjectResolver: ObjectResolver,
 	}
 }
 
@@ -103,7 +94,7 @@ func (r *readWriter) WriteClusterReport(ctx context.Context, report v1alpha1.Clu
 	return err
 }
 
-func (r *readWriter) FindReportByOwner(ctx context.Context, owner kube.ObjectRef) (*v1alpha1.ConfigAuditReport, error) {
+func (r *readWriter) FindReportByOwner(ctx context.Context, owner kube.ObjectRef) (interface{}, error) {
 	var list v1alpha1.ConfigAuditReportList
 
 	labels := client.MatchingLabels(kube.ObjectRefToLabels(owner))
@@ -120,33 +111,7 @@ func (r *readWriter) FindReportByOwner(ctx context.Context, owner kube.ObjectRef
 	return nil, nil
 }
 
-func (r *readWriter) FindReportByOwnerInHierarchy(ctx context.Context, owner kube.ObjectRef) (*v1alpha1.ConfigAuditReport, error) {
-	report, err := r.FindReportByOwner(ctx, owner)
-	if err != nil {
-		return nil, err
-	}
-
-	// no reports found for provided owner, look for reports in related replicaset
-	if report == nil && (owner.Kind == kube.KindDeployment || owner.Kind == kube.KindPod) {
-		rsName, err := r.RelatedReplicaSetName(ctx, owner)
-		if err != nil {
-			return nil, fmt.Errorf("getting replicaset related to %s/%s: %w", owner.Kind, owner.Name, err)
-		}
-		report, err = r.FindReportByOwner(ctx, kube.ObjectRef{
-			Kind:      kube.KindReplicaSet,
-			Name:      rsName,
-			Namespace: owner.Namespace,
-		})
-
-	}
-
-	if report != nil {
-		return report.DeepCopy(), nil
-	}
-	return nil, nil
-}
-
-func (r *readWriter) FindClusterReportByOwner(ctx context.Context, owner kube.ObjectRef) (*v1alpha1.ClusterConfigAuditReport, error) {
+func (r *readWriter) FindClusterReportByOwner(ctx context.Context, owner kube.ObjectRef) (interface{}, error) {
 	var list v1alpha1.ClusterConfigAuditReportList
 
 	labels := client.MatchingLabels(kube.ObjectRefToLabels(owner))

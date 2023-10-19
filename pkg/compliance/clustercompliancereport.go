@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"
+	"github.com/khulnasoft-lab/vul-operator/pkg/utils"
 	"github.com/go-logr/logr"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/ext"
-	"github.com/khulnasoft-lab/starboard/pkg/utils"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -20,14 +21,18 @@ import (
 type ClusterComplianceReportReconciler struct {
 	logr.Logger
 	client.Client
+	etc.Config
 	Mgr
 	ext.Clock
 }
 
+// +kubebuilder:rbac:groups=khulnasoft-lab.github.io,resources=clustercompliancereports,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=khulnasoft-lab.github.io,resources=clustercompliancereports/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=khulnasoft-lab.github.io,resources=clustercompliancedetailreports,verbs=get;list;watch;create;update;patch;delete
+
 func (r *ClusterComplianceReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.ClusterComplianceReport{}).
-		Owns(&v1alpha1.ClusterComplianceDetailReport{}).
 		Complete(r.reconcileComplianceReport()); err != nil {
 		return err
 	}
@@ -57,12 +62,15 @@ func (r *ClusterComplianceReportReconciler) generateComplianceReport(ctx context
 		if err != nil {
 			return fmt.Errorf("failed to check report cron expression %w", err)
 		}
-		if utils.DurationExceeded(durationToNextGeneration) {
+		if utils.DurationExceeded(durationToNextGeneration) || r.Config.InvokeClusterComplianceOnce {
 			err = r.Mgr.GenerateComplianceReport(ctx, report.Spec)
 			if err != nil {
 				log.Error(err, "failed to generate compliance report")
 			}
 			return err
+		}
+		if r.Config.InvokeClusterComplianceOnce { // for demo or testing purposes
+			return nil
 		}
 		log.V(1).Info("RequeueAfter", "durationToNextGeneration", durationToNextGeneration)
 		ctrlResult.RequeueAfter = durationToNextGeneration

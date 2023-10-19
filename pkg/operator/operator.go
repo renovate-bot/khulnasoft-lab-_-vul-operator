@@ -3,23 +3,37 @@ package operator
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
-	"github.com/khulnasoft-lab/starboard/pkg/compliance"
-	"github.com/khulnasoft-lab/starboard/pkg/configauditreport"
-	"github.com/khulnasoft-lab/starboard/pkg/ext"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/khulnasoft-lab/starboard/pkg/kubebench"
-	"github.com/khulnasoft-lab/starboard/pkg/operator/controller"
-	"github.com/khulnasoft-lab/starboard/pkg/operator/etc"
-	"github.com/khulnasoft-lab/starboard/pkg/plugin"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
-	"github.com/khulnasoft-lab/starboard/pkg/vulnerabilityreport"
+	"github.com/khulnasoft-lab/vul-operator/pkg/compliance"
+	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport"
+	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport/controller"
+	"github.com/khulnasoft-lab/vul-operator/pkg/exposedsecretreport"
+	"github.com/khulnasoft-lab/vul-operator/pkg/ext"
+	"github.com/khulnasoft-lab/vul-operator/pkg/infraassessment"
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
+	"github.com/khulnasoft-lab/vul-operator/pkg/metrics"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/jobs"
+	"github.com/khulnasoft-lab/vul-operator/pkg/plugins"
+	"github.com/khulnasoft-lab/vul-operator/pkg/rbacassessment"
+	"github.com/khulnasoft-lab/vul-operator/pkg/sbomreport"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vulnerabilityreport"
+	vcontroller "github.com/khulnasoft-lab/vul-operator/pkg/vulnerabilityreport/controller"
+	"github.com/khulnasoft-lab/vul-operator/pkg/webhook"
+	"github.com/bluele/gcache"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var (
@@ -28,7 +42,7 @@ var (
 
 // Start starts all registered reconcilers and blocks until the context is cancelled.
 // Returns an error if there is an error starting any reconciler.
-func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig etc.Config) error {
+func Start(ctx context.Context, buildInfo vuloperator.BuildInfo, operatorConfig etc.Config) error {
 	installMode, operatorNamespace, targetNamespaces, err := operatorConfig.ResolveInstallMode()
 	if err != nil {
 		return fmt.Errorf("resolving install mode: %w", err)
@@ -36,13 +50,22 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 	setupLog.Info("Resolved install mode", "install mode", installMode,
 		"operator namespace", operatorNamespace,
 		"target namespaces", targetNamespaces,
-		"exclude namespaces", operatorConfig.ExcludeNamespaces)
+		"exclude namespaces", operatorConfig.ExcludeNamespaces,
+		"target workloads", operatorConfig.GetTargetWorkloads())
 
 	// Set the default manager options.
 	options := manager.Options{
-		Scheme:                 starboard.NewScheme(),
-		MetricsBindAddress:     operatorConfig.MetricsBindAddress,
+		Scheme:                 vuloperator.NewScheme(),
+		Metrics:                metricsserver.Options{BindAddress: operatorConfig.MetricsBindAddress},
 		HealthProbeBindAddress: operatorConfig.HealthProbeBindAddress,
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{
+					&corev1.Secret{},
+					&corev1.ServiceAccount{},
+				},
+			},
+		},
 	}
 
 	if operatorConfig.LeaderElectionEnabled {
@@ -53,32 +76,23 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 
 	switch installMode {
 	case etc.OwnNamespace:
-		// Add support for OwnNamespace set in OPERATOR_NAMESPACE (e.g. `starboard-operator`)
-		// and OPERATOR_TARGET_NAMESPACES (e.g. `starboard-operator`).
-		setupLog.Info("Constructing client cache", "namespace", targetNamespaces[0])
-		options.Namespace = targetNamespaces[0]
-	case etc.SingleNamespace:
-		// Add support for SingleNamespace set in OPERATOR_NAMESPACE (e.g. `starboard-operator`)
+		// Add support for OwnNamespace set in OPERATOR_NAMESPACE (e.g. `vul-operator`)
+		// and OPERATOR_TARGET_NAMESPACES (e.g. `vul-operator`).
+		setupLog.Info("Constructing client cache", "namespace", operatorNamespace)
+		options.Cache.DefaultNamespaces = map[string]cache.Config{operatorNamespace: {}}
+	case etc.SingleNamespace, etc.MultiNamespace:
+		// Add support for SingleNamespace set in OPERATOR_NAMESPACE (e.g. `vul-operator`)
 		// and OPERATOR_TARGET_NAMESPACES (e.g. `default`).
-		cachedNamespaces := append(targetNamespaces, operatorNamespace)
-		if operatorConfig.CISKubernetesBenchmarkEnabled {
-			// Cache cluster-scoped resources such as Nodes
-			cachedNamespaces = append(cachedNamespaces, "")
-		}
-		setupLog.Info("Constructing client cache", "namespaces", cachedNamespaces)
-		options.NewCache = cache.MultiNamespacedCacheBuilder(cachedNamespaces)
-	case etc.MultiNamespace:
-		// Add support for MultiNamespace set in OPERATOR_NAMESPACE (e.g. `starboard-operator`)
+		// Add support for MultiNamespace set in OPERATOR_NAMESPACE (e.g. `vul-operator`)
 		// and OPERATOR_TARGET_NAMESPACES (e.g. `default,kube-system`).
 		// Note that you may face performance issues when using this mode with a high number of namespaces.
 		// More: https://godoc.org/github.com/kubernetes-sigs/controller-runtime/pkg/cache#MultiNamespacedCacheBuilder
-		cachedNamespaces := append(targetNamespaces, operatorNamespace)
-		if operatorConfig.CISKubernetesBenchmarkEnabled {
-			// Cache cluster-scoped resources such as Nodes
-			cachedNamespaces = append(cachedNamespaces, "")
+		namespaceCacheMap := make(map[string]cache.Config)
+		setupLog.Info("Constructing client cache", "namespaces", targetNamespaces)
+		for _, namespace := range append(targetNamespaces, operatorNamespace) {
+			namespaceCacheMap[namespace] = cache.Config{}
 		}
-		setupLog.Info("Constructing client cache", "namespaces", cachedNamespaces)
-		options.NewCache = cache.MultiNamespacedCacheBuilder(cachedNamespaces)
+		options.Cache.DefaultNamespaces = namespaceCacheMap
 	case etc.AllNamespaces:
 		// Add support for AllNamespaces set in OPERATOR_NAMESPACE (e.g. `operators`)
 		// and OPERATOR_TARGET_NAMESPACES left blank.
@@ -91,14 +105,12 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 	if err != nil {
 		return fmt.Errorf("getting kube client config: %w", err)
 	}
-
 	// The only reason we're using kubernetes.Clientset is that we need it to read Pod logs,
 	// which is not supported by the client returned by the ctrl.Manager.
-	kubeClientset, err := kubernetes.NewForConfig(kubeConfig)
+	clientSet, err := kubernetes.NewForConfig(kubeConfig)
 	if err != nil {
 		return fmt.Errorf("constructing kube client: %w", err)
 	}
-
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		return fmt.Errorf("constructing controllers manager: %w", err)
@@ -114,32 +126,40 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 		return err
 	}
 
-	configManager := starboard.NewConfigManager(kubeClientset, operatorNamespace)
+	configManager := vuloperator.NewConfigManager(clientSet, operatorNamespace)
 	err = configManager.EnsureDefault(context.Background())
 	if err != nil {
 		return err
 	}
-
-	starboardConfig, err := configManager.Read(context.Background())
+	compatibleObjectMapper, err := kube.InitCompatibleMgr()
 	if err != nil {
 		return err
 	}
-	compatibleObjectMapper, err := kube.InitCompatibleMgr(mgr.GetClient().RESTMapper())
+	vulOperatorConfig, err := configManager.Read(context.Background())
 	if err != nil {
 		return err
 	}
 	objectResolver := kube.NewObjectResolver(mgr.GetClient(), compatibleObjectMapper)
-	limitChecker := controller.NewLimitChecker(operatorConfig, mgr.GetClient(), starboardConfig)
-	logsReader := kube.NewLogsReader(kubeClientset)
+	if err != nil {
+		return err
+	}
+	limitChecker := jobs.NewLimitChecker(operatorConfig, mgr.GetClient(), vulOperatorConfig)
+	logsReader := kube.NewLogsReader(clientSet)
 	secretsReader := kube.NewSecretsReader(mgr.GetClient())
 
-	if operatorConfig.VulnerabilityScannerEnabled {
-		plugin, pluginContext, err := plugin.NewResolver().
+	if operatorConfig.VulnerabilityScannerEnabled || operatorConfig.ExposedSecretScannerEnabled || operatorConfig.SbomGenerationEnable {
+
+		vulOperatorConfig.Set(vuloperator.KeyVulnerabilityScannerEnabled, strconv.FormatBool(operatorConfig.VulnerabilityScannerEnabled))
+		vulOperatorConfig.Set(vuloperator.KeyExposedSecretsScannerEnabled, strconv.FormatBool(operatorConfig.ExposedSecretScannerEnabled))
+		vulOperatorConfig.Set(vuloperator.KeyGenerateSbom, strconv.FormatBool(operatorConfig.SbomGenerationEnable))
+
+		plugin, pluginContext, err := plugins.NewResolver().
 			WithBuildInfo(buildInfo).
 			WithNamespace(operatorNamespace).
 			WithServiceAccountName(operatorConfig.ServiceAccount).
-			WithConfig(starboardConfig).
+			WithConfig(vulOperatorConfig).
 			WithClient(mgr.GetClient()).
+			WithObjectResolver(&objectResolver).
 			GetVulnerabilityPlugin()
 		if err != nil {
 			return err
@@ -150,104 +170,168 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 			return fmt.Errorf("initializing %s plugin: %w", pluginContext.GetName(), err)
 		}
 
-		if err = (&vulnerabilityreport.WorkloadController{
-			Logger:         ctrl.Log.WithName("reconciler").WithName("vulnerabilityreport"),
-			Config:         operatorConfig,
-			ConfigData:     starboardConfig,
-			Client:         mgr.GetClient(),
-			ObjectResolver: objectResolver,
-			LimitChecker:   limitChecker,
-			LogsReader:     logsReader,
-			SecretsReader:  secretsReader,
-			Plugin:         plugin,
-			PluginContext:  pluginContext,
-			ReadWriter:     vulnerabilityreport.NewReadWriter(&objectResolver),
+		if err = (&vcontroller.WorkloadController{
+			Logger:           ctrl.Log.WithName("reconciler").WithName("vulnerabilityreport"),
+			Config:           operatorConfig,
+			ConfigData:       vulOperatorConfig,
+			Client:           mgr.GetClient(),
+			ObjectResolver:   objectResolver,
+			LimitChecker:     limitChecker,
+			SecretsReader:    secretsReader,
+			Plugin:           plugin,
+			PluginContext:    pluginContext,
+			CacheSyncTimeout: *operatorConfig.ControllerCacheSyncTimeout,
+			ServerHealthChecker: vcontroller.NewVulServerChecker(
+				operatorConfig.VulServerHealthCheckCacheExpiration,
+				gcache.New(1).LRU().Build(),
+				vcontroller.NewHttpChecker()),
+			VulnerabilityReadWriter: vulnerabilityreport.NewReadWriter(&objectResolver),
+			ExposedSecretReadWriter: exposedsecretreport.NewReadWriter(&objectResolver),
+			SbomReadWriter:          sbomreport.NewReadWriter(&objectResolver),
+			SubmitScanJobChan:       make(chan vcontroller.ScanJobRequest, operatorConfig.ConcurrentScanJobsLimit),
+			ResultScanJobChan:       make(chan vcontroller.ScanJobResult, operatorConfig.ConcurrentScanJobsLimit),
 		}).SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("unable to setup vulnerabilityreport reconciler: %w", err)
 		}
 
-		if operatorConfig.VulnerabilityScannerReportTTL != nil {
-			if err = (&controller.TTLReportReconciler{
-				Logger: ctrl.Log.WithName("reconciler").WithName("ttlreport"),
-				Config: operatorConfig,
-				Client: mgr.GetClient(),
-				Clock:  ext.NewSystemClock(),
-			}).SetupWithManager(mgr); err != nil {
-				return fmt.Errorf("unable to setup TTLreport reconciler: %w", err)
+		if err = (&vcontroller.ScanJobController{
+			Logger:                  ctrl.Log.WithName("reconciler").WithName("scan job"),
+			Config:                  operatorConfig,
+			ConfigData:              vulOperatorConfig,
+			ObjectResolver:          objectResolver,
+			LogsReader:              logsReader,
+			Plugin:                  plugin,
+			PluginContext:           pluginContext,
+			SbomReadWriter:          sbomreport.NewReadWriter(&objectResolver),
+			VulnerabilityReadWriter: vulnerabilityreport.NewReadWriter(&objectResolver),
+			ExposedSecretReadWriter: exposedsecretreport.NewReadWriter(&objectResolver),
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to setup scan job  reconciler: %w", err)
+		}
+	}
+
+	if operatorConfig.ScannerReportTTL != nil {
+		_, pluginContext, err := plugins.NewResolver().
+			WithBuildInfo(buildInfo).
+			WithNamespace(operatorNamespace).
+			WithServiceAccountName(operatorConfig.ServiceAccount).
+			WithConfig(vulOperatorConfig).
+			WithClient(mgr.GetClient()).
+			WithObjectResolver(&objectResolver).
+			GetVulnerabilityPlugin()
+		if err != nil {
+			return err
+		}
+		ttlReconciler := &TTLReportReconciler{
+			Logger: ctrl.Log.WithName("reconciler").WithName("ttlreport"),
+			Config: operatorConfig,
+			Client: mgr.GetClient(),
+			Clock:  ext.NewSystemClock(),
+		}
+		if operatorConfig.ConfigAuditScannerEnabled {
+			plugin, pluginContextCofig, err := plugins.NewResolver().WithBuildInfo(buildInfo).
+				WithNamespace(operatorNamespace).
+				WithServiceAccountName(operatorConfig.ServiceAccount).
+				WithConfig(vulOperatorConfig).
+				WithClient(mgr.GetClient()).
+				WithObjectResolver(&objectResolver).
+				GetConfigAuditPlugin()
+			if err != nil {
+				return fmt.Errorf("initializing %s plugin: %w", pluginContext.GetName(), err)
 			}
+			ttlReconciler.PluginContext = pluginContextCofig
+			ttlReconciler.PluginInMemory = plugin
+		}
+		if err = ttlReconciler.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to setup TTLreport reconciler: %w", err)
+		}
+	}
+
+	if operatorConfig.WebhookBroadcastURL != "" {
+		if err = (&webhook.WebhookReconciler{
+			Logger: ctrl.Log.WithName("reconciler").WithName("webhookreporter"),
+			Config: operatorConfig,
+			Client: mgr.GetClient(),
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to setup webhookreporter: %w", err)
 		}
 	}
 
 	if operatorConfig.ConfigAuditScannerEnabled {
-		plugin, pluginContext, err := plugin.NewResolver().
-			WithBuildInfo(buildInfo).
+		plugin, pluginContext, err := plugins.NewResolver().WithBuildInfo(buildInfo).
 			WithNamespace(operatorNamespace).
 			WithServiceAccountName(operatorConfig.ServiceAccount).
-			WithConfig(starboardConfig).
+			WithConfig(vulOperatorConfig).
 			WithClient(mgr.GetClient()).
+			WithObjectResolver(&objectResolver).
 			GetConfigAuditPlugin()
 		if err != nil {
-			return err
+			return fmt.Errorf("initializing %s plugin: %w", pluginContext.GetName(), err)
 		}
-
 		err = plugin.Init(pluginContext)
 		if err != nil {
 			return fmt.Errorf("initializing %s plugin: %w", pluginContext.GetName(), err)
 		}
-
-		if err = (&controller.ConfigAuditReportReconciler{
-			Logger:         ctrl.Log.WithName("reconciler").WithName("configauditreport"),
-			Config:         operatorConfig,
-			ConfigData:     starboardConfig,
-			Client:         mgr.GetClient(),
-			ObjectResolver: objectResolver,
-			LimitChecker:   limitChecker,
-			LogsReader:     logsReader,
-			Plugin:         plugin,
-			PluginContext:  pluginContext,
-			ReadWriter:     configauditreport.NewReadWriter(&objectResolver),
-		}).SetupWithManager(mgr); err != nil {
-			return fmt.Errorf("unable to setup configauditreport reconciler: %w", err)
+		var gitVersion string
+		if version, err := clientSet.ServerVersion(); err == nil {
+			gitVersion = strings.TrimPrefix(version.GitVersion, "v")
 		}
-
-		if err = (&controller.PluginsConfigReconciler{
-			Logger:        ctrl.Log.WithName("reconciler").WithName("pluginsconfig"),
-			Config:        operatorConfig,
-			Client:        mgr.GetClient(),
-			Plugin:        plugin,
-			PluginContext: pluginContext,
-		}).SetupWithManager(mgr); err != nil {
-			return fmt.Errorf("unable to setup %T: %w", controller.PluginsConfigReconciler{}, err)
-		}
-	}
-
-	if operatorConfig.CISKubernetesBenchmarkEnabled {
-		if err = (&controller.CISKubeBenchReportReconciler{
-			Logger:       ctrl.Log.WithName("reconciler").WithName("ciskubebenchreport"),
-			Config:       operatorConfig,
-			ConfigData:   starboardConfig,
-			Client:       mgr.GetClient(),
-			LogsReader:   logsReader,
-			LimitChecker: limitChecker,
-			ReadWriter:   kubebench.NewReadWriter(mgr.GetClient()),
-			Plugin:       kubebench.NewKubeBenchPlugin(ext.NewSystemClock(), starboardConfig),
-		}).SetupWithManager(mgr); err != nil {
-			return fmt.Errorf("unable to setup ciskubebenchreport reconciler: %w", err)
-		}
-	}
-
-	if operatorConfig.ConfigAuditScannerBuiltIn {
 		setupLog.Info("Enabling built-in configuration audit scanner")
-		if err = (&configauditreport.ResourceController{
-			Logger:         ctrl.Log.WithName("resourcecontroller"),
-			Config:         operatorConfig,
-			ConfigData:     starboardConfig,
-			Client:         mgr.GetClient(),
-			ObjectResolver: objectResolver,
-			ReadWriter:     configauditreport.NewReadWriter(&objectResolver),
-			BuildInfo:      buildInfo,
+		if err = (&controller.ResourceController{
+			Logger:           ctrl.Log.WithName("resourcecontroller"),
+			Config:           operatorConfig,
+			ConfigData:       vulOperatorConfig,
+			ObjectResolver:   objectResolver,
+			PluginContext:    pluginContext,
+			PluginInMemory:   plugin,
+			ReadWriter:       configauditreport.NewReadWriter(&objectResolver),
+			RbacReadWriter:   rbacassessment.NewReadWriter(&objectResolver),
+			InfraReadWriter:  infraassessment.NewReadWriter(&objectResolver),
+			BuildInfo:        buildInfo,
+			ClusterVersion:   gitVersion,
+			CacheSyncTimeout: *operatorConfig.ControllerCacheSyncTimeout,
 		}).SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("unable to setup resource controller: %w", err)
+		}
+		if err = (&controller.PolicyConfigController{
+			Logger:         ctrl.Log.WithName("resourcecontroller"),
+			Config:         operatorConfig,
+			ObjectResolver: objectResolver,
+			PluginContext:  pluginContext,
+			PluginInMemory: plugin,
+			ClusterVersion: gitVersion,
+		}).SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to setup resource controller: %w", err)
+		}
+		if operatorConfig.InfraAssessmentScannerEnabled {
+			limitChecker := jobs.NewLimitChecker(operatorConfig, mgr.GetClient(), vulOperatorConfig)
+			if err = (&controller.NodeReconciler{
+				Logger:           ctrl.Log.WithName("node-reconciler"),
+				Config:           operatorConfig,
+				ConfigData:       vulOperatorConfig,
+				ObjectResolver:   objectResolver,
+				PluginContext:    pluginContext,
+				PluginInMemory:   plugin,
+				LimitChecker:     limitChecker,
+				InfraReadWriter:  infraassessment.NewReadWriter(&objectResolver),
+				BuildInfo:        buildInfo,
+				CacheSyncTimeout: *operatorConfig.ControllerCacheSyncTimeout,
+			}).SetupWithManager(mgr); err != nil {
+				return fmt.Errorf("unable to setup node collector controller: %w", err)
+			}
+			if err = (&controller.NodeCollectorJobController{
+				Logger:          ctrl.Log.WithName("node-collectorontroller"),
+				Config:          operatorConfig,
+				ConfigData:      vulOperatorConfig,
+				ObjectResolver:  objectResolver,
+				LogsReader:      logsReader,
+				PluginContext:   pluginContext,
+				PluginInMemory:  plugin,
+				InfraReadWriter: infraassessment.NewReadWriter(&objectResolver),
+				BuildInfo:       buildInfo,
+			}).SetupWithManager(mgr); err != nil {
+				return fmt.Errorf("unable to setup node collector controller: %w", err)
+			}
 		}
 	}
 
@@ -255,14 +339,24 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 		logger := ctrl.Log.WithName("reconciler").WithName("clustercompliancereport")
 		cc := &compliance.ClusterComplianceReportReconciler{
 			Logger: logger,
+			Config: operatorConfig,
 			Client: mgr.GetClient(),
-			Mgr:    compliance.NewMgr(mgr.GetClient(), logger, starboardConfig),
+			Mgr:    compliance.NewMgr(mgr.GetClient()),
 			Clock:  ext.NewSystemClock(),
 		}
 		if err := cc.SetupWithManager(mgr); err != nil {
 			return fmt.Errorf("unable to setup clustercompliancereport reconciler: %w", err)
 		}
 	}
+
+	if operatorConfig.MetricsFindingsEnabled {
+		logger := ctrl.Log.WithName("metrics")
+		rmc := metrics.NewResourcesMetricsCollector(logger, operatorConfig, vulOperatorConfig, mgr.GetClient())
+		if err := rmc.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to setup resources metrics collector: %w", err)
+		}
+	}
+
 	setupLog.Info("Starting controllers manager")
 	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("starting controllers manager: %w", err)

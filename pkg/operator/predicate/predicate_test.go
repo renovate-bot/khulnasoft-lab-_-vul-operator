@@ -3,11 +3,11 @@ package predicate_test
 import (
 	"time"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/khulnasoft-lab/starboard/pkg/operator/etc"
-	"github.com/khulnasoft-lab/starboard/pkg/operator/predicate"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/etc"
+	"github.com/khulnasoft-lab/vul-operator/pkg/operator/predicate"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -22,12 +22,12 @@ var _ = Describe("Predicate", func() {
 			When("and object is in operator namespace", func() {
 				It("Should return false", func() {
 					config := etc.Config{
-						Namespace:        "starboard-operator",
+						Namespace:        "vul-operator",
 						TargetNamespaces: "default",
 					}
 					obj := &corev1.Pod{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "starboard-operator",
+							Namespace: "vul-operator",
 						},
 					}
 					instance, err := predicate.InstallModePredicate(config)
@@ -43,7 +43,7 @@ var _ = Describe("Predicate", func() {
 			When("and object is in target namespace", func() {
 				It("Should return true", func() {
 					config := etc.Config{
-						Namespace:        "starboard-operator",
+						Namespace:        "vul-operator",
 						TargetNamespaces: "foo",
 					}
 					obj := &corev1.Pod{
@@ -66,12 +66,12 @@ var _ = Describe("Predicate", func() {
 			When("and object is in target namespace", func() {
 				It("Should return true", func() {
 					config := etc.Config{
-						Namespace:        "starboard-operator",
-						TargetNamespaces: "foo,starboard-operator",
+						Namespace:        "vul-operator",
+						TargetNamespaces: "foo,vul-operator",
 					}
 					obj := &corev1.Pod{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "starboard-operator",
+							Namespace: "vul-operator",
 						},
 					}
 					instance, err := predicate.InstallModePredicate(config)
@@ -87,12 +87,12 @@ var _ = Describe("Predicate", func() {
 			When("and object is not in target namespace", func() {
 				It("Should return false", func() {
 					config := etc.Config{
-						Namespace:        "starboard-operator",
+						Namespace:        "vul-operator",
 						TargetNamespaces: "foo,bar",
 					}
 					obj := &corev1.Pod{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: "starboard-operator",
+							Namespace: "vul-operator",
 						},
 					}
 					instance, err := predicate.InstallModePredicate(config)
@@ -110,7 +110,7 @@ var _ = Describe("Predicate", func() {
 			When("and object is not excluded", func() {
 				It("Should return true", func() {
 					config := etc.Config{
-						Namespace:         "starboard-operator",
+						Namespace:         "vul-operator",
 						TargetNamespaces:  "",
 						ExcludeNamespaces: "kube-system",
 					}
@@ -132,9 +132,9 @@ var _ = Describe("Predicate", func() {
 			When("and object is excluded", func() {
 				It("Should return false", func() {
 					config := etc.Config{
-						Namespace:         "starboard-operator",
+						Namespace:         "vul-operator",
 						TargetNamespaces:  "",
-						ExcludeNamespaces: "kube-system,starboard-system",
+						ExcludeNamespaces: "kube-system,vuloperator-system",
 					}
 					obj := &corev1.Pod{
 						ObjectMeta: metav1.ObjectMeta{
@@ -154,9 +154,9 @@ var _ = Describe("Predicate", func() {
 			When("and object is excluded with glob pattern", func() {
 				It("Should return false", func() {
 					config := etc.Config{
-						Namespace:         "starboard-operator",
+						Namespace:         "vul-operator",
 						TargetNamespaces:  "",
-						ExcludeNamespaces: "kube-*,starboard-system",
+						ExcludeNamespaces: "kube-*,vuloperator-system",
 					}
 					obj := &corev1.Pod{
 						ObjectMeta: metav1.ObjectMeta{
@@ -178,10 +178,10 @@ var _ = Describe("Predicate", func() {
 	Describe("When checking a HasName predicate", func() {
 		Context("When object has desired name", func() {
 			It("Should return true", func() {
-				instance := predicate.HasName("starboard-polaris-config")
+				instance := predicate.HasName("vuloperator-vul-config")
 				obj := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "starboard-polaris-config",
+						Name: "vuloperator-vul-config",
 					},
 				}
 
@@ -194,10 +194,10 @@ var _ = Describe("Predicate", func() {
 
 		Context("When object does not have desired name", func() {
 			It("Should return false", func() {
-				instance := predicate.HasName("starboard-conftest-config")
+				instance := predicate.HasName("vuloperator-vul-config")
 				obj := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
-						Name: "starboard",
+						Name: "vuloperator",
 					},
 				}
 
@@ -212,10 +212,10 @@ var _ = Describe("Predicate", func() {
 	Describe("When checking a InNamespace predicate", func() {
 		Context("When object is in desired namespace", func() {
 			It("Should return true", func() {
-				instance := predicate.InNamespace("starboard-operator")
+				instance := predicate.InNamespace("vul-operator")
 				obj := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "starboard-operator",
+						Namespace: "vul-operator",
 					},
 				}
 
@@ -228,7 +228,7 @@ var _ = Describe("Predicate", func() {
 
 		Context("When object is not in desired namespace", func() {
 			It("Should return false", func() {
-				instance := predicate.InNamespace("starboard-operator")
+				instance := predicate.InNamespace("vul-operator")
 				obj := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: corev1.NamespaceDefault,
@@ -243,15 +243,15 @@ var _ = Describe("Predicate", func() {
 		})
 	})
 
-	Describe("When checking a ManagedByStarboardOperator predicate", func() {
-		instance := predicate.ManagedByStarboardOperator
+	Describe("When checking a ManagedByVulOperator predicate", func() {
+		instance := predicate.ManagedByVulOperator
 
-		Context("Where object is managed by Starboard operator", func() {
+		Context("Where object is managed by Vul-Operator operator", func() {
 			It("Should return true", func() {
 				obj := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Labels: map[string]string{
-							"app.kubernetes.io/managed-by": "starboard",
+							"app.kubernetes.io/managed-by": "vul-operator",
 						},
 					},
 				}

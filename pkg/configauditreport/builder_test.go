@@ -1,27 +1,19 @@
 package configauditreport_test
 
 import (
-	"encoding/json"
-	"fmt"
-
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/labels"
 
-	"io"
 	"testing"
-	"time"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/configauditreport"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/pointer"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestReportBuilder(t *testing.T) {
@@ -38,11 +30,13 @@ func TestReportBuilder(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "some-owner",
 					Namespace: "qa",
+					Labels:    labels.Set{"tier": "tier-1", "owner": "team-a"},
 				},
 			}).
 			ResourceSpecHash("xyz").
 			PluginConfigHash("nop").
 			Data(v1alpha1.ConfigAuditReportData{}).
+			ResourceLabelsToInclude([]string{"tier"}).
 			GetReport()
 
 		g.Expect(err).ToNot(HaveOccurred())
@@ -55,16 +49,17 @@ func TestReportBuilder(t *testing.T) {
 						APIVersion:         "apps/v1",
 						Kind:               "ReplicaSet",
 						Name:               "some-owner",
-						Controller:         pointer.BoolPtr(true),
-						BlockOwnerDeletion: pointer.BoolPtr(false),
+						Controller:         pointer.Bool(true),
+						BlockOwnerDeletion: pointer.Bool(false),
 					},
 				},
 				Labels: map[string]string{
-					starboard.LabelResourceKind:      "ReplicaSet",
-					starboard.LabelResourceName:      "some-owner",
-					starboard.LabelResourceNamespace: "qa",
-					starboard.LabelResourceSpecHash:  "xyz",
-					starboard.LabelPluginConfigHash:  "nop",
+					vuloperator.LabelResourceKind:      "ReplicaSet",
+					vuloperator.LabelResourceName:      "some-owner",
+					vuloperator.LabelResourceNamespace: "qa",
+					vuloperator.LabelResourceSpecHash:  "xyz",
+					vuloperator.LabelPluginConfigHash:  "nop",
+					"tier":                               "tier-1",
 				},
 			},
 			Report: v1alpha1.ConfigAuditReportData{},
@@ -81,12 +76,14 @@ func TestReportBuilder(t *testing.T) {
 					APIVersion: "rbac.authorization.k8s.io/v1",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "system:controller:node-controller",
+					Name:   "system:controller:node-controller",
+					Labels: labels.Set{"tier": "tier-1", "owner": "team-a"},
 				},
 			}).
 			ResourceSpecHash("xyz").
 			PluginConfigHash("nop").
 			Data(v1alpha1.ConfigAuditReportData{}).
+			ResourceLabelsToInclude([]string{"tier"}).
 			GetClusterReport()
 
 		g.Expect(err).ToNot(HaveOccurred())
@@ -98,188 +95,71 @@ func TestReportBuilder(t *testing.T) {
 						APIVersion:         "rbac.authorization.k8s.io/v1",
 						Kind:               "ClusterRole",
 						Name:               "system:controller:node-controller",
-						Controller:         pointer.BoolPtr(true),
-						BlockOwnerDeletion: pointer.BoolPtr(false),
+						Controller:         pointer.Bool(true),
+						BlockOwnerDeletion: pointer.Bool(false),
 					},
 				},
 				Labels: map[string]string{
-					starboard.LabelResourceKind:      "ClusterRole",
-					starboard.LabelResourceNameHash:  "6f69bb5b79",
-					starboard.LabelResourceNamespace: "",
-					starboard.LabelResourceSpecHash:  "xyz",
-					starboard.LabelPluginConfigHash:  "nop",
+					vuloperator.LabelResourceKind:      "ClusterRole",
+					vuloperator.LabelResourceNameHash:  "6f69bb5b79",
+					vuloperator.LabelResourceNamespace: "",
+					vuloperator.LabelResourceSpecHash:  "xyz",
+					vuloperator.LabelPluginConfigHash:  "nop",
+					"tier":                               "tier-1",
 				},
 				Annotations: map[string]string{
-					starboard.LabelResourceName: "system:controller:node-controller",
+					vuloperator.LabelResourceName: "system:controller:node-controller",
 				},
 			},
 			Report: v1alpha1.ConfigAuditReportData{},
 		}))
 	})
-}
 
-type testPlugin struct {
-	configHash string
-}
-
-func (p *testPlugin) SupportedKinds() []kube.Kind {
-	return []kube.Kind{}
-}
-
-func (p *testPlugin) IsApplicable(_ starboard.PluginContext, _ client.Object) (bool, string, error) {
-	return true, "", nil
-}
-
-func (p *testPlugin) Init(_ starboard.PluginContext) error {
-	return nil
-}
-
-func (p *testPlugin) GetScanJobSpec(_ starboard.PluginContext, obj client.Object) (corev1.PodSpec, []*corev1.Secret, error) {
-	return corev1.PodSpec{}, nil, nil
-}
-
-func (p *testPlugin) ParseConfigAuditReportData(_ starboard.PluginContext, logsReader io.ReadCloser) (v1alpha1.ConfigAuditReportData, error) {
-	return v1alpha1.ConfigAuditReportData{}, nil
-}
-
-func (p *testPlugin) GetContainerName() string {
-	return ""
-}
-
-func (p *testPlugin) ConfigHash(_ starboard.PluginContext, _ kube.Kind) (string, error) {
-	return p.configHash, nil
-}
-
-func TestScanJobBuilder(t *testing.T) {
-
-	t.Run("Should build scan job for resource with simple name", func(t *testing.T) {
+	t.Run("Should build report with lowercase name", func(t *testing.T) {
 		g := NewGomegaWithT(t)
-		job, _, err := configauditreport.NewScanJobBuilder().
-			WithPlugin(&testPlugin{
-				configHash: "hash-test",
-			}).
-			WithPluginContext(starboard.NewPluginContext().
-				WithName("plugin-test").
-				WithNamespace("starboard-ns").
-				WithServiceAccountName("starboard-sa").
-				Get()).
-			WithTimeout(3 * time.Second).
-			WithObject(&appsv1.ReplicaSet{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "ReplicaSet",
-					APIVersion: "apps/v1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "nginx-6799fc88d8",
-					Namespace: "prod-ns",
-				},
-			}).
-			Get()
-		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(job).To(Equal(&batchv1.Job{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "scan-configauditreport-64d65c457",
-				Namespace: "starboard-ns",
-				Labels: map[string]string{
-					starboard.LabelResourceSpecHash:         "755877d4bb",
-					starboard.LabelPluginConfigHash:         "hash-test",
-					starboard.LabelConfigAuditReportScanner: "plugin-test",
-					starboard.LabelK8SAppManagedBy:          "starboard",
-					starboard.LabelResourceKind:             "ReplicaSet",
-					starboard.LabelResourceName:             "nginx-6799fc88d8",
-					starboard.LabelResourceNamespace:        "prod-ns",
-				},
-			},
-			Spec: batchv1.JobSpec{
-				BackoffLimit:          pointer.Int32Ptr(0),
-				Completions:           pointer.Int32Ptr(1),
-				ActiveDeadlineSeconds: pointer.Int64Ptr(3),
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: map[string]string{
-							starboard.LabelResourceSpecHash:         "755877d4bb",
-							starboard.LabelPluginConfigHash:         "hash-test",
-							starboard.LabelConfigAuditReportScanner: "plugin-test",
-							starboard.LabelK8SAppManagedBy:          "starboard",
-							starboard.LabelResourceKind:             "ReplicaSet",
-							starboard.LabelResourceName:             "nginx-6799fc88d8",
-							starboard.LabelResourceNamespace:        "prod-ns",
-						},
-					},
-					Spec: corev1.PodSpec{},
-				},
-			},
-		}))
-	})
 
-	t.Run("Should build scan job for resource with special name", func(t *testing.T) {
-		g := NewGomegaWithT(t)
-		job, _, err := configauditreport.NewScanJobBuilder().
-			WithPlugin(&testPlugin{
-				configHash: "hash-test",
-			}).
-			WithPluginContext(starboard.NewPluginContext().
-				WithName("plugin-test").
-				WithNamespace("starboard-ns").
-				WithServiceAccountName("starboard-sa").
-				Get()).
-			WithTimeout(3 * time.Second).
-			WithObject(&rbacv1.ClusterRole{
+		report, err := configauditreport.NewReportBuilder(scheme.Scheme).
+			Controller(&rbacv1.Role{
 				TypeMeta: metav1.TypeMeta{
-					Kind:       "ClusterRole",
+					Kind:       "Role",
 					APIVersion: "rbac.authorization.k8s.io/v1",
 				},
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "system:controller:node-controller",
+					Name:      "pod-Reader",
+					Labels:    labels.Set{"tier": "tier-1", "owner": "team-a"},
+					Namespace: "test",
 				},
 			}).
-			Get()
+			ResourceSpecHash("xyz").
+			PluginConfigHash("nop").
+			Data(v1alpha1.ConfigAuditReportData{}).
+			ResourceLabelsToInclude([]string{"tier"}).
+			GetReport()
+
 		g.Expect(err).ToNot(HaveOccurred())
-		g.Expect(job).NotTo(BeNil())
-		b, err := json.Marshal(job)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println(string(b))
-		g.Expect(job).To(Equal(&batchv1.Job{
+		g.Expect(report).To(Equal(v1alpha1.ConfigAuditReport{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "scan-configauditreport-5bfbdd65c9",
-				Namespace: "starboard-ns",
-				Labels: map[string]string{
-					starboard.LabelResourceSpecHash:         "66f8596c77",
-					starboard.LabelPluginConfigHash:         "hash-test",
-					starboard.LabelConfigAuditReportScanner: "plugin-test",
-					starboard.LabelK8SAppManagedBy:          "starboard",
-					starboard.LabelResourceKind:             "ClusterRole",
-					starboard.LabelResourceNameHash:         "6f69bb5b79",
-					starboard.LabelResourceNamespace:        "",
-				},
-				Annotations: map[string]string{
-					starboard.LabelResourceName: "system:controller:node-controller",
-				},
-			},
-			Spec: batchv1.JobSpec{
-				BackoffLimit:          pointer.Int32Ptr(0),
-				Completions:           pointer.Int32Ptr(1),
-				ActiveDeadlineSeconds: pointer.Int64Ptr(3),
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: map[string]string{
-							starboard.LabelResourceSpecHash:         "66f8596c77",
-							starboard.LabelPluginConfigHash:         "hash-test",
-							starboard.LabelConfigAuditReportScanner: "plugin-test",
-							starboard.LabelK8SAppManagedBy:          "starboard",
-							starboard.LabelResourceKind:             "ClusterRole",
-							starboard.LabelResourceNameHash:         "6f69bb5b79",
-							starboard.LabelResourceNamespace:        "",
-						},
-						Annotations: map[string]string{
-							starboard.LabelResourceName: "system:controller:node-controller",
-						},
+				Name:      "role-65c67c5c64",
+				Namespace: "test",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion:         "rbac.authorization.k8s.io/v1",
+						Kind:               "Role",
+						Name:               "pod-Reader",
+						Controller:         pointer.Bool(true),
+						BlockOwnerDeletion: pointer.Bool(false),
 					},
-					Spec: corev1.PodSpec{},
+				},
+				Labels: map[string]string{
+					vuloperator.LabelPluginConfigHash:  "nop",
+					vuloperator.LabelResourceKind:      "Role",
+					vuloperator.LabelResourceNamespace: "test",
+					vuloperator.LabelResourceName:      "pod-Reader",
+					"tier":                               "tier-1",
+					vuloperator.LabelResourceSpecHash:  "xyz",
 				},
 			},
+			Report: v1alpha1.ConfigAuditReportData{},
 		}))
 	})
 }

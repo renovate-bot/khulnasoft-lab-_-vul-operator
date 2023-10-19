@@ -5,9 +5,9 @@ import (
 
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/itest/matcher"
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
+	"github.com/khulnasoft-lab/vul-operator/itest/matcher"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,10 +37,10 @@ func TestVulnerabilityReportMatcher(t *testing.T) {
 				Name:      "pod-nginx-pod-nginx-container",
 				Namespace: "default",
 				Labels: map[string]string{
-					starboard.LabelContainerName:     "nginx-container",
-					starboard.LabelResourceKind:      "Pod",
-					starboard.LabelResourceName:      "nginx-pod",
-					starboard.LabelResourceNamespace: "default",
+					vuloperator.LabelContainerName:     "nginx-container",
+					vuloperator.LabelResourceKind:      "Pod",
+					vuloperator.LabelResourceName:      "nginx-pod",
+					vuloperator.LabelResourceNamespace: "default",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -48,16 +48,16 @@ func TestVulnerabilityReportMatcher(t *testing.T) {
 						Kind:               "Pod",
 						Name:               "nginx-pod",
 						UID:                "56d53a84-c81b-4620-81a1-e226c35d3983",
-						Controller:         pointer.BoolPtr(true),
-						BlockOwnerDeletion: pointer.BoolPtr(false),
+						Controller:         pointer.Bool(true),
+						BlockOwnerDeletion: pointer.Bool(false),
 					},
 				},
 			},
 			Report: v1alpha1.VulnerabilityReportData{
 				Scanner: v1alpha1.Scanner{
-					Name:    "Vul",
-					Vendor:  "KhulnaSoft",
-					Version: "0.25.2",
+					Name:    v1alpha1.ScannerNameVul,
+					Vendor:  "Khulnasoft Security",
+					Version: "0.36.0",
 				},
 				Vulnerabilities: []v1alpha1.Vulnerability{},
 			},
@@ -90,9 +90,9 @@ func TestConfigAuditReportMatcher(t *testing.T) {
 				Name:      "replicaset-nginx-6d4cf56db6",
 				Namespace: "default",
 				Labels: map[string]string{
-					starboard.LabelResourceKind:      "ReplicaSet",
-					starboard.LabelResourceName:      "nginx-6d4cf56db6",
-					starboard.LabelResourceNamespace: "default",
+					vuloperator.LabelResourceKind:      "ReplicaSet",
+					vuloperator.LabelResourceName:      "nginx-6d4cf56db6",
+					vuloperator.LabelResourceNamespace: "default",
 				},
 				OwnerReferences: []metav1.OwnerReference{
 					{
@@ -100,15 +100,15 @@ func TestConfigAuditReportMatcher(t *testing.T) {
 						Kind:               "ReplicaSet",
 						Name:               "nginx-6d4cf56db6",
 						UID:                "494b2727-5d52-4057-9a9b-8b508c753fea",
-						Controller:         pointer.BoolPtr(true),
-						BlockOwnerDeletion: pointer.BoolPtr(false),
+						Controller:         pointer.Bool(true),
+						BlockOwnerDeletion: pointer.Bool(false),
 					},
 				},
 			},
 			Report: v1alpha1.ConfigAuditReportData{
 				Scanner: v1alpha1.Scanner{
-					Name:    "Starboard",
-					Vendor:  "KhulnaSoft",
+					Name:    v1alpha1.ScannerNameVul,
+					Vendor:  "Khulnasoft Security",
 					Version: "dev",
 				},
 			},

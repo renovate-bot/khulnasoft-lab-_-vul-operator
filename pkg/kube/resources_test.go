@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -24,10 +24,65 @@ func TestGetContainerImagesFromPodSpec(t *testing.T) {
 				Image: "sidecar:1.32.7",
 			},
 		},
-	})
+		InitContainers: []corev1.Container{
+			{
+				Name:  "init",
+				Image: "init:1.0.0",
+			},
+			{
+				Name:  "init2",
+				Image: "init:1.0.0",
+			},
+		},
+		EphemeralContainers: []corev1.EphemeralContainer{
+			{
+				EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+					Name:  "debug",
+					Image: "debug:1.0.0",
+				},
+			},
+		},
+	}, false)
 	assert.Equal(t, kube.ContainerImages{
 		"nginx":   "nginx:1.16",
 		"sidecar": "sidecar:1.32.7",
+		"init":    "init:1.0.0",
+		"init2":   "init:1.0.0",
+		"debug":   "debug:1.0.0",
+	}, images)
+}
+
+func TestGetContainerImagesFromContainersList(t *testing.T) {
+	images := kube.GetContainerImagesFromContainersList(
+		[]corev1.Container{
+			{
+				Name:  "nginx",
+				Image: "nginx:1.16",
+			},
+			{
+				Name:  "sidecar",
+				Image: "sidecar:1.32.7",
+			},
+			{
+				Name:  "init",
+				Image: "init:1.0.0",
+			},
+			{
+				Name:  "init2",
+				Image: "init:1.0.0",
+			},
+			{
+				Name:  "debug",
+				Image: "debug:1.0.0",
+			},
+		},
+	)
+	assert.Equal(t, kube.ContainerImages{
+		"nginx":   "nginx:1.16",
+		"sidecar": "sidecar:1.32.7",
+		"init":    "init:1.0.0",
+		"init2":   "init:1.0.0",
+		"debug":   "debug:1.0.0",
 	}, images)
 }
 
@@ -35,25 +90,25 @@ func TestGetContainerImagesFromJob(t *testing.T) {
 
 	t.Run("Should return error when annotation is not set", func(t *testing.T) {
 		_, err := kube.GetContainerImagesFromJob(&batchv1.Job{})
-		require.EqualError(t, err, "required annotation not set: starboard.container-images")
+		require.EqualError(t, err, "required annotation not set: vul-operator.container-images")
 	})
 
 	t.Run("Should return error when annotation is set but has invalid value", func(t *testing.T) {
 		_, err := kube.GetContainerImagesFromJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"starboard.container-images": ``,
+					"vul-operator.container-images": ``,
 				},
 			},
 		})
-		require.EqualError(t, err, "parsing annotation: starboard.container-images: unexpected end of JSON input")
+		require.EqualError(t, err, "parsing annotation: vul-operator.container-images: unexpected end of JSON input")
 	})
 
 	t.Run("Should return ContainerImages when annotation is set", func(t *testing.T) {
 		images, err := kube.GetContainerImagesFromJob(&batchv1.Job{
 			ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{
-					"starboard.container-images": `{"nginx":"nginx:1.16","sidecar":"sidecar:1.32.7"}`,
+					"vul-operator.container-images": `{"nginx":"nginx:1.16","sidecar":"sidecar:1.32.7"}`,
 				},
 			},
 		})

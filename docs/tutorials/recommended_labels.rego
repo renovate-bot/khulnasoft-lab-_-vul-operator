@@ -1,4 +1,4 @@
-package starboard.policy.k8s.custom
+package vuloperator.policy.k8s.custom
 
 __rego_metadata__ := {
 	"id": "recommended_labels",

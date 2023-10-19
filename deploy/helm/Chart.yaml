@@ -1,27 +1,27 @@
 apiVersion: v2
-name: starboard-operator
+name: vul-operator
 description: Keeps security report resources updated
 type: application
 
 # This is the chart version. This version number should be incremented each time you make changes
 # to the chart and its templates, including the app version.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.10.14
+version: 0.18.3
 
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
 # follow Semantic Versioning. They should reflect the version the application is using.
-appVersion: 0.15.15
+appVersion: 0.16.3
 
 # kubeVersion: A SemVer range of compatible Kubernetes versions (optional)
 
 keywords:
-  - khulnasoft
-  - starboard
+  - khulnasoft-lab
+  - vuloperator
   - vul
-# home: https://github.com/khulnasoft-lab/starboard
+# home: https://github.com/khulnasoft-lab/vul-operator
 sources:
-  - https://github.com/khulnasoft-lab/starboard
+  - https://github.com/khulnasoft-lab/vul-operator
 # maintainers: # (optional)
 #   - name: The maintainers name (required for each maintainer)
 #     email: The maintainers email (optional for each maintainer)

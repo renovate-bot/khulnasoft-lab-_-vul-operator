@@ -6,9 +6,9 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 
-	"github.com/khulnasoft-lab/starboard/pkg/apis/khulnasoft/v1alpha1"
-	"github.com/khulnasoft-lab/starboard/pkg/kube"
-	"github.com/khulnasoft-lab/starboard/pkg/starboard"
+	"github.com/khulnasoft-lab/vul-operator/pkg/apis/khulnasoft-lab/v1alpha1"
+	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
+	"github.com/khulnasoft-lab/vul-operator/pkg/vuloperator"
 	"github.com/onsi/gomega/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,13 +19,13 @@ import (
 
 var (
 	vulScanner = v1alpha1.Scanner{
-		Name:    "Vul",
-		Vendor:  "KhulnaSoft",
-		Version: "0.25.2",
+		Name:    v1alpha1.ScannerNameVul,
+		Vendor:  "Khulnasoft Security",
+		Version: "0.36.0",
 	}
 	builtInScanner = v1alpha1.Scanner{
-		Name:    "Starboard",
-		Vendor:  "KhulnaSoft",
+		Name:    v1alpha1.ScannerNameVul,
+		Vendor:  "Khulnasoft Security",
 		Version: "dev",
 	}
 )
@@ -37,7 +37,7 @@ var (
 // of the actual v1alpha1.VulnerabilityReport.
 func IsVulnerabilityReportForContainerOwnedBy(containerName string, owner client.Object) types.GomegaMatcher {
 	return &vulnerabilityReportMatcher{
-		scheme:        starboard.NewScheme(),
+		scheme:        vuloperator.NewScheme(),
 		containerName: containerName,
 		owner:         owner,
 	}
@@ -65,7 +65,7 @@ func (m *vulnerabilityReportMatcher) Match(actual interface{}) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	keys[starboard.LabelContainerName] = Equal(m.containerName)
+	keys[vuloperator.LabelContainerName] = Equal(m.containerName)
 
 	matcher := MatchFields(IgnoreExtras, Fields{
 		"ObjectMeta": MatchFields(IgnoreExtras, Fields{
@@ -75,8 +75,8 @@ func (m *vulnerabilityReportMatcher) Match(actual interface{}) (bool, error) {
 				Kind:               gvk.Kind,
 				Name:               m.owner.GetName(),
 				UID:                m.owner.GetUID(),
-				Controller:         pointer.BoolPtr(true),
-				BlockOwnerDeletion: pointer.BoolPtr(false),
+				Controller:         pointer.Bool(true),
+				BlockOwnerDeletion: pointer.Bool(false),
 			}),
 		}),
 		"Report": MatchFields(IgnoreExtras, Fields{
@@ -148,7 +148,7 @@ func (m *configAuditReportMatcher) Match(actual interface{}) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("%T expects a %T", configAuditReportMatcher{}, v1alpha1.ConfigAuditReport{})
 	}
-	gvk, err := apiutil.GVKForObject(m.owner, starboard.NewScheme())
+	gvk, err := apiutil.GVKForObject(m.owner, vuloperator.NewScheme())
 	if err != nil {
 		return false, err
 	}
@@ -156,17 +156,17 @@ func (m *configAuditReportMatcher) Match(actual interface{}) (bool, error) {
 	matcher := MatchFields(IgnoreExtras, Fields{
 		"ObjectMeta": MatchFields(IgnoreExtras, Fields{
 			"Labels": MatchKeys(IgnoreExtras, Keys{
-				starboard.LabelResourceKind:      Equal(gvk.Kind),
-				starboard.LabelResourceName:      Equal(m.owner.GetName()),
-				starboard.LabelResourceNamespace: Equal(m.owner.GetNamespace()),
+				vuloperator.LabelResourceKind:      Equal(gvk.Kind),
+				vuloperator.LabelResourceName:      Equal(m.owner.GetName()),
+				vuloperator.LabelResourceNamespace: Equal(m.owner.GetNamespace()),
 			}),
 			"OwnerReferences": ConsistOf(metav1.OwnerReference{
 				APIVersion:         gvk.GroupVersion().Identifier(),
 				Kind:               gvk.Kind,
 				Name:               m.owner.GetName(),
 				UID:                m.owner.GetUID(),
-				Controller:         pointer.BoolPtr(true),
-				BlockOwnerDeletion: pointer.BoolPtr(false),
+				Controller:         pointer.Bool(true),
+				BlockOwnerDeletion: pointer.Bool(false),
 			}),
 		}),
 		"Report": MatchFields(IgnoreExtras, Fields{
