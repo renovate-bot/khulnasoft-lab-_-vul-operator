@@ -97,7 +97,7 @@ Once the Vul Operator is installed inside the Kubernetes cluster, it will perfor
 | [View All Secrets]                       | Do not allow users in a rolebinding to add other users to their rolebindings                                        | Role/ClusterRole |
 
 
-[defsec]: https://github.com/khulnasoft-lab/defsec/tree/master/rules/kubernetes/policies/cisbenchmarks
+[defsec]: https://github.com/khulnasoft/defsec/tree/master/rules/kubernetes/policies/cisbenchmarks
 [node-collector]: https://github.com/khulnasoft-lab/k8s-node-collector
 
 [CPU not limited]: https://avd.khulnasoft.com/misconfig/kubernetes/ksv011/

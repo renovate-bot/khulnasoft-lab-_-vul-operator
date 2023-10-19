@@ -1,7 +1,7 @@
 package v1alpha1
 
 import (
-	defsecTypes "github.com/khulnasoft-lab/defsec/pkg/types"
+	defsecTypes "github.com/khulnasoft/defsec/pkg/types"
 	"github.com/khulnasoft-lab/vul/pkg/compliance/report"
 	"github.com/khulnasoft-lab/vul/pkg/compliance/spec"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

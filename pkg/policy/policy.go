@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/khulnasoft-lab/defsec/pkg/severity"
+	"github.com/khulnasoft/defsec/pkg/severity"
 	"github.com/khulnasoft-lab/vul-operator/pkg/configauditreport"
 	"github.com/khulnasoft-lab/vul-operator/pkg/plugins/vul"
 	"github.com/khulnasoft-lab/vul/pkg/mapfs"
@@ -18,9 +18,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/liamg/memoryfs"
 
-	"github.com/khulnasoft-lab/defsec/pkg/scan"
-	"github.com/khulnasoft-lab/defsec/pkg/scanners/kubernetes"
-	"github.com/khulnasoft-lab/defsec/pkg/scanners/options"
+	"github.com/khulnasoft/defsec/pkg/scan"
+	"github.com/khulnasoft/defsec/pkg/scanners/kubernetes"
+	"github.com/khulnasoft/defsec/pkg/scanners/options"
 
 	"github.com/khulnasoft-lab/vul-operator/pkg/kube"
 	"sigs.k8s.io/controller-runtime/pkg/client"

@@ -4,9 +4,6 @@ go 1.20
 
 require (
 	github.com/CycloneDX/cyclonedx-go v0.7.2
-	github.com/khulnasoft-lab/defsec v0.93.1
-	github.com/khulnasoft-lab/vul v0.45.1
-	github.com/khulnasoft-lab/vul-kubernetes v0.5.9-0.20231012093841-fd81c83cb368
 	github.com/bluele/gcache v0.0.2
 	github.com/caarlos0/env/v6 v6.10.1
 	github.com/davecgh/go-spew v1.1.1
@@ -31,7 +28,7 @@ require (
 	k8s.io/cli-runtime v0.28.2
 	k8s.io/client-go v0.28.2
 	k8s.io/kubectl v0.28.2 // indirect
-	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.2
 	sigs.k8s.io/yaml v1.3.0
 )
@@ -66,11 +63,8 @@ require (
 	github.com/Masterminds/squirrel v1.5.4 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/anchore/go-struct-converter v0.0.0-20221118182256-c68fdcfa2092 // indirect
+	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/apparentlymart/go-cidr v1.1.0 // indirect
-	github.com/khulnasoft-lab/go-dep-parser v0.0.0-20230830122616-841bc0f812c7 // indirect
-	github.com/khulnasoft-lab/table v1.8.0 // indirect
-	github.com/khulnasoft-lab/tml v0.6.1 // indirect
-	github.com/khulnasoft-lab/vul-java-db v0.0.0-20230209231723-7cddb1406728 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aws/aws-sdk-go v1.45.3 // indirect
 	github.com/aws/smithy-go v1.14.2 // indirect
@@ -121,6 +115,12 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/jmoiron/sqlx v1.3.5 // indirect
+	github.com/khulnasoft-lab/go-dep-parser v1.0.2 // indirect
+	github.com/khulnasoft-lab/goversion v1.0.1 // indirect
+	github.com/khulnasoft-lab/testdocker v1.0.0 // indirect
+	github.com/khulnasoft-lab/vul-java-db v1.0.1 // indirect
+	github.com/khulnasoft-lab/vul-kubernetes v0.5.5 // indirect
+	github.com/khulnasoft/defsec v1.0.3 // indirect
 	github.com/klauspost/compress v1.16.5 // indirect
 	github.com/knqyf263/go-rpm-version v0.0.0-20220614171824-631e686d1075 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
@@ -209,7 +209,6 @@ require (
 	github.com/agnivade/levenshtein v1.1.1 // indirect
 	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/apparentlymart/go-textseg/v13 v13.0.0 // indirect
-	github.com/khulnasoft-lab/vul-db v0.0.0-20230831170347-f732860d4917
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dlclark/regexp2 v1.4.0 // indirect
@@ -287,3 +286,5 @@ require (
 )
 
 replace oras.land/oras-go => oras.land/oras-go v1.2.4-0.20230801060855-932dd06d38af
+
+replace github.com/khulnasoft-lab/vul-kubernetes v0.5.7-0.20230814115812-7afa52705226 => github.com/khulnasoft-lab/vul-kubernetes v0.5.5
