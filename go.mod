@@ -16,7 +16,7 @@ require (
 	github.com/liamg/memoryfs v1.6.0
 	github.com/onsi/ginkgo/v2 v2.13.0
 	github.com/onsi/gomega v1.28.0
-	github.com/openshift/api v0.0.0-20221013123533-341d389bd4a7
+	github.com/openshift/api 19181c14ebc7
 	github.com/prometheus/client_golang v1.17.0
 	github.com/stretchr/testify v1.8.4
 	go.uber.org/automaxprocs v1.5.3
